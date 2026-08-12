@@ -1,0 +1,21 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  username: <%= ENV["PG_USER"] %>
+
+development:
+  primary:
+    <<: *default
+    database: full_app_development
+  animals:
+    <<: *default
+    database: full_app_animals
+    migrations_paths: db/animals_migrate
+
+test:
+  primary:
+    <<: *default
+    database: full_app_test
+  animals:
+    <<: *default
+    database: full_app_animals_test

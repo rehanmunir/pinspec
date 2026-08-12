@@ -1,0 +1,3 @@
+class Unbalanced
+  def call
+    :missing_end

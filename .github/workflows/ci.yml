@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  spec:
+    name: "spec (ruby ${{ matrix.ruby }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.2 is the declared CLI floor (spec v0.3 §0.1). It is in the matrix
+        # because an unverified floor is a claim, not a constraint.
+        ruby: ["3.2", "3.3", "3.4"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: false # lockfile caching arrives with the fixture apps at M2/M3
+
+      - run: bundle install --jobs 4 --retry 3
+
+      - run: bundle exec rspec
+
+      # The :hostile verification config in miniature (spec v0.3 §7 M-13). pinspec
+      # emits specs that must survive LANG=C on someone else's CI, so its own
+      # suite runs there first.
+      - name: spec under a hostile locale
+        run: LANG=C LC_ALL=C TZ=Etc/GMT+8 bundle exec rspec
+
+  probe-syntax:
+    # The generated probe runs inside the target app's Ruby, whose floor is 2.6
+    # (spec v0.3 §0.1) - so it must *parse* on 2.6 even though the CLI needs 3.2.
+    #
+    # This guard goes live at M3 with M-07, when rendered probe snapshots exist.
+    # Until then it says so rather than passing quietly, because a guard that
+    # silently checks nothing reads exactly like a guard that passed.
+    name: "probe parses on ruby 2.6"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "2.6"
+          bundler-cache: false
+
+      - name: syntax-check rendered probe snapshots
+        run: |
+          shopt -s nullglob
+          rendered=(spec/fixtures/probe/*.rb)
+          if [ ${#rendered[@]} -eq 0 ]; then
+            echo "No rendered probe snapshots yet."
+            echo "This guard goes live at M3 (M-07 ProbeGenerator)."
+            exit 0
+          fi
+          for file in "${rendered[@]}"; do
+            echo "ruby -c $file"
+            ruby -c "$file"
+          done
+
+  # Still to come, so they are named rather than forgotten:
+  #   M3 - rollback row-count proof across every configured connection (§12.2)
+  #   M4 - zero-literal-id grep + positive pin coverage over emitted specs (§13 M4)
+  #   M4 - M-14 host-equivalence suite across all six contract axes (§7 M-14)

@@ -1,0 +1,11 @@
+default: &default
+  adapter: postgresql
+
+test:
+  primary:
+    <<: *default
+    database: shop_test
+  reporting:
+    <<: *default
+    database: shop_reporting_test
+    migrations_paths: db/reporting_migrate
