@@ -12,7 +12,8 @@ pinspec pin app/services/invoice_calculator.rb#call
 ```
 
 Design: [`docs/spec-v0.3.md`](docs/spec-v0.3.md). The review that produced it:
-[`docs/spec-review-v0.2.md`](docs/spec-review-v0.2.md).
+[`docs/spec-review-v0.2.md`](docs/spec-review-v0.2.md). Backend decision:
+[`docs/spike-m11-mutation-adapter.md`](docs/spike-m11-mutation-adapter.md).
 
 ## Status
 
@@ -26,7 +27,7 @@ target-app code yet - `analyze` and `plan` read source, not a running app.
 | `pinspec analyze [APP]` | complete: app profile, schema, factories, and hazard warnings |
 | `pinspec capture` | M3 |
 | `pinspec pin` | M4 |
-| `pinspec validate` / `report` | M5 |
+| `pinspec validate` / `report` | M5 (backend chosen and proven - see the [M-11 spike](docs/spike-m11-mutation-adapter.md)) |
 
 ## What M-01 does
 

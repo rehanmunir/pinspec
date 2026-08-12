@@ -45,6 +45,7 @@ M-01 constructor resolution (5 shapes) + `Time.now`/`Date.today` site detection 
 | Probe Ruby syntax | 2.6 | oldest Ruby a supported Rails runs on; CI `ruby -c` guard |
 | **Target Rails** | **6.0** | `insert_all` (import), `connects_to` (multi-DB detect), `CurrentAttributes#reset_all` (between-case clears) |
 | Target RSpec | 3.x with `rspec-rails` | emitted spec host; `have_enqueued_job` block matcher |
+| CLI Ruby **for `--validate`** | **3.4** | the mutineer backend requires it (M-11 spike, 2026-08-11). Optional dependency: `--validate` refuses on 3.2/3.3 with a clear message; the rest of pinspec is unaffected |
 
 Below the Rails floor: `UnsupportedRailsVersion` (exit 10) naming the detected version and the three APIs that are missing. Supporting 5.2 means a hand-rolled multi-row insert and a `CurrentAttributes` shim — deliberately out of v1 (open question 10).
 
@@ -508,12 +509,20 @@ Unchanged: names and grouping only, JSON-schema-validated, deterministic fallbac
 
 Unchanged backend stance (mutineer default for licensing, mutant opt-in, adapter-isolated, `--validate` opt-in). Scores per **aspect** — return/error and side-effect pins graded independently, so a mutation deleting a `perform_later` is killed by the job pin even when the return pin sleeps through it.
 
-- Δ **Spike at M1, not M5.** M5's DoD depends on the default backend booting a real Rails app, targeting a `source_range`, and running a single spec file. That is an unvalidated third-party dependency gating the final milestone. A 2h spike against `rails71_basic` in weekend 1 tells you whether to swap the default — cheap insurance against learning it in weekend 11.
+- Δ **Spiked at M1 (done, 2026-08-11 — `docs/spike-m11-mutation-adapter.md`).** mutineer **stays the default**: it discriminates a strong pin from a worthless one (80% vs 20% on the same subject), targets one subject, runs one spec file, emits versioned JSON, and is MIT with **zero runtime dependencies** — the only candidate compatible with "no gems added to a client Gemfile". Three contracts changed as a result:
+  1. **The adapter targets by `qualified_name`, not `source_range`.** The backend selects a subject by name (`--only "InvoiceCalculator#call"`), which is exactly what `TargetProfile#qualified_name` produces. `source_range` remains useful for line-based modes and reports but does not select the subject.
+  2. **Aspect scoring is one backend run per aspect, over a temporary per-aspect spec file.** `--test` takes files, not example filters, so `PinScorer` derives one file per aspect from the emitted pin. This is the M-09 coupling in the acceptance list below.
+  3. **Two execution modes by target-app Ruby:** `--rails --daemon` (boot once, fork per mutant, parallel) when the app is on Ruby ≥ 3.4; `--test-command "bundle exec rspec %{files}"` (serial, no per-worker DB isolation) below that. The serial path is verified working across runtimes — mutineer on 3.4.6 scoring a suite executing on 2.6.4, same score as native.
 - Δ **Strong-aspect numerator excludes** pins bearing `{t:"seq"}` or `:truncated_value`. Those assert less than they appear to, and §14's metric must not be inflatable by them.
+- Δ **A small number of false survivors is irreducible.** Equivalent-mutant detection is imperfect (the spike found one: dropping `.round(2)` where the float product is already exact). The report presents a score with that caveat rather than as a precise measurement.
 
-**Acceptance:** v0.2 checklist, plus: vacuous-return + meaningful-job fixture → return pin `:worthless`, job pin `:strong`.
+**Acceptance:** v0.2 checklist, plus:
+- [ ] Vacuous-return + meaningful-job fixture → return pin `:worthless`, job pin `:strong` (demonstrated in the spike: the return-only run's survivors include the deleted `perform_later` line, which the job-only run kills)
+- [ ] Emitted pins keep one `it` per aspect, cleanly separable into per-aspect files — the M-09 coupling
+- [ ] `--validate` on Ruby 3.2/3.3 refuses with a message naming the 3.4 requirement, rather than failing inside `gem install`
+- [ ] The adapter picks daemon vs `--test-command` from the target app's Ruby version, and the report says which mode ran and whether it was serial
 
-**Effort: 12h (+2, incl. the M1 spike). Risk: medium.**
+**Effort: 12h (spike done: ~2h spent, backend choice confirmed). Risk: medium — capability is proven, maturity is not (mutineer 0.11.4, five weeks old, one maintainer). Mitigated by the adapter boundary, a `~> 0.11` pin, and keying on the JSON's `schema_version`.**
 
 ---
 
@@ -732,7 +741,7 @@ At a genuine 10h/weekend-day, two days per weekend: **10–13 weekends.** (Highe
 | MS | Scope | Definition of done | Est |
 |---|---|---|---|
 | **M0** | Scaffold, CI, `rails71_basic`, error taxonomy + exit codes | `pinspec version` green in CI; exit-code table implemented | 1 day |
-| **M1** | M-01..M-04 + rows 23, 24, 27, 37 + `analyze` + **mutation-adapter spike** | Analyze correct on both 7.1 fixtures incl. hazard sections; constructor shapes resolved; Rails-floor refusal works; spike answers "can the default backend score a single spec file on a real Rails app?"; **cut `0.1.0`** — standalone pre-engagement hazard report | wknd 1–2 |
+| **M1** | M-01..M-04 + rows 23, 24, 27, 37 + `analyze` + ~~mutation-adapter spike~~ (done) | Analyze correct on both 7.1 fixtures incl. hazard sections; constructor shapes resolved; Rails-floor refusal works; ~~spike~~ **done — backend confirmed, three contracts corrected**; **cut `0.1.0`** — standalone pre-engagement hazard report | wknd 1–2 |
 | **M2** | M-05 (rows 1–10, 18–20, 25, 28, **29, 31, 34**) + M-06 (hydration, redaction rework, stratified, ctor∪method OFAT) + `plan` | `plan` renders a valid SetupPlan incl. a `:construct_subject`, an import cluster, and an `:isolation` decision for 5 targets; every gating row has a green integration test | wknd 2–5 |
 | **M3** | M-07 (identity map, `insert_all` import, SCHEMA filters, two-boot, both isolation regimes) + M-08 + rows 11–17, 21, 22, 26, **30, 32, 33** + `capture` | observations.json on all three fixtures; row-count proof under both regimes and all connections; side-effect capture proof; row-30 target stable across two boots; 6.1 green | wknd 5–7 |
 | **M4** | M-09 (helper signature, isolation wrapper, sinks, block matchers, TZ guard) + M-10 + M-13 matrix + **M-14** + rows 35, 36 | **All three verify configs `:green`/`:remedied`, zero manual edits**, on both 7.1 fixtures and `rails61_legacy`, all 3 backends, `--no-llm` included; zero-literal-id grep **plus** ≥1 return/error pin and ≥1 side-effect pin per target; all six M-14 axes green | wknd 7–10 |
@@ -764,7 +773,7 @@ The first two are free money. The last two are the ones that feel like savings a
 
 ## 15. Open questions & decision log
 
-**Locked (v0.1):** two-process stdlib probe · RSpec-only · service objects + models · `:inline` default · mutineer default (licensing) · LLM names-only · no Faker.
+**Locked (v0.1):** two-process stdlib probe · RSpec-only · service objects + models · `:inline` default · mutineer default (licensing — **re-confirmed on capability by the M-11 spike, 2026-08-11**) · LLM names-only · no Faker.
 
 **Locked (v0.2):** plan-time hydration · one-source serializer template · refs replace IDs · side-effect capture ON · redaction ON · verification in the default `pin` path.
 
@@ -781,6 +790,7 @@ The first two are free money. The last two are the ones that feel like savings a
 - Redaction is **domain- and length-preserving** with read-detection surfaced in the spec
 - Sample DB defaults to **development-if-populated**
 - M-14 exists: host equivalence is a build-breaking test
+- The mutation adapter targets by `qualified_name`; aspect scoring is one run per aspect over a temporary per-aspect spec file; `--validate` requires Ruby 3.4 in the pinspec gemset (M-11 spike)
 
 **Open (owner: Rehan):**
 1. ~~Gem name~~ — closed: `pinspec`.

@@ -2,10 +2,25 @@
 
 ## Unreleased (0.0.1)
 
-M0 scaffold and all four M1 analyzer modules: M-01 TargetParser, M-02
-SchemaReader, M-03 FactoryIndex, M-04 AppProfile. `pinspec analyze` is now the
-complete standalone hazard report; `0.1.0` waits only on the M-11
-mutation-adapter spike (spec v0.3 section 13, M1).
+M1 is complete: M0 scaffold, all four analyzer modules (M-01 TargetParser, M-02
+SchemaReader, M-03 FactoryIndex, M-04 AppProfile), `pinspec analyze` as a
+standalone hazard report, and the M-11 mutation-adapter spike. Ready to cut
+`0.1.0` (spec v0.3 section 13, M1).
+
+### Investigated
+
+- **M-11 mutation-adapter spike** (`docs/spike-m11-mutation-adapter.md`). Pulled
+  forward from M5 because M5's definition of done gated on an unproven backend.
+  `mutineer` stays the default: it separates a strong pin from a worthless one
+  (80% vs 20% on the same subject), targets a single subject, runs a single spec
+  file, emits versioned JSON, and is MIT with zero runtime dependencies - the only
+  candidate compatible with adding no gems to a client Gemfile. Its Ruby >= 3.4
+  requirement is not a blocker: `--test-command` runs the suite in the app's own
+  runtime, verified by scoring a Ruby 2.6.4 suite from Ruby 3.4.6 with an
+  identical result. Three contracts corrected as a result - the adapter targets by
+  `qualified_name` rather than `source_range`, aspect scoring is one run per
+  aspect over a temporary per-aspect spec file, and `--validate` needs Ruby 3.4 in
+  the pinspec gemset while the rest of pinspec keeps its 3.2 floor.
 
 ### Added
 
