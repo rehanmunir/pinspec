@@ -36,20 +36,67 @@ RSpec.describe "pinspec CLI" do
   end
 
   describe "plan" do
-    it "prints the resolved target, including the constructor, and exits 0" do
-      stdout, _stderr, status = run_cli("plan", target("invoice_calculator.rb", "call"))
+    # A SetupPlan needs an app: the schema and factories decide what the world is
+    # made of. The target file itself can live anywhere.
+    def app_target(app, service, method = "call")
+      root = File.join(ROOT, "spec", "fixtures", "apps", app)
+      ["--app", root, "#{File.join(root, 'app/services', service)}##{method}"]
+    end
+
+    it "prints the resolved target and the plan that would build its world" do
+      stdout, _stderr, status = run_cli("plan", *app_target("basic_app", "invoice_calculator.rb"))
 
       expect(status.exitstatus).to eq(0)
       expect(stdout).to include("InvoiceCalculator#call")
-      expect(stdout).to include("InvoiceCalculator.new(invoice, tax_engine: TaxEngine.new")
-      expect(stdout).to include("method params  (none)")
-      expect(stdout).to include("SetupPlan generation lands in M2")
+      expect(stdout).to include("InvoiceCalculator.new(invoice, tax_rate: 0.08)")
+      expect(stdout).to include("setup plan")
+      expect(stdout).to include("freeze_time 2026-01-01T12:00:00Z")
+      expect(stdout).to include("create_record invoice_1 <- factory(:invoice)")
+      expect(stdout).to include("invoice -> invoice_1")
+    end
+
+    it "shows the hazard-carrying app's plan: flags, tenant, truncation" do
+      stdout, _stderr, status = run_cli("plan", *app_target("full_app", "company_auditor.rb"))
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("isolation truncation")
+      expect(stdout).to include("set_flag :audit_v2 = false")
+      expect(stdout).to include("set_tenant company_1")
+
+      # This target never mentions a current user, so none is built - and the plan says
+      # why instead of leaving a reader to spot the absence.
+      expect(stdout).not_to include("set_whodunnit")
+      expect(stdout).to include("current_user_not_built")
+    end
+
+    it "shows the whodunnit step for a target that does read the current user" do
+      stdout, _stderr, status = run_cli("plan", *app_target("full_app", "company_reviewer.rb"))
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("stub_current devise_user person_1")
+      expect(stdout).to include("set_whodunnit person_1")
+    end
+
+    it "exits 5 when the world cannot be built, naming the reason" do
+      _stdout, stderr, status = run_cli("plan", *app_target("full_app", "order_archiver.rb"))
+
+      expect(status.exitstatus).to eq(5)
+      expect(stderr).to include("reason: unknown_column_type")
+      expect(stderr).to include("orders.service_area")
+    end
+
+    it "says so when it is not pointed at an app root" do
+      stdout, stderr, status = run_cli("plan", target("invoice_calculator.rb", "call"))
+
+      # The target still resolves; there is simply no app to build a world from.
+      expect(stdout).to include("InvoiceCalculator#call")
+      expect(status.exitstatus).to eq(2)
+      expect(stderr).to include("Rails application root")
     end
 
     it "flags a clock-dependent target in the output, not just in the data" do
-      stdout, _stderr, status = run_cli("plan", target("clock_service.rb", "ExpiryChecker#call"))
+      stdout, _stderr, = run_cli("plan", target("clock_service.rb", "ExpiryChecker#call"))
 
-      expect(status.exitstatus).to eq(0)
       expect(stdout).to include("Time.now (line 9)")
       expect(stdout).to include("reads the process clock, not Time.zone")
     end
@@ -148,19 +195,51 @@ RSpec.describe "pinspec CLI" do
     end
   end
 
-  describe "verbs that aren't built yet" do
-    {
-      "capture"  => ["M3", ["x.rb#call"]],
-      "pin"      => ["M4", ["x.rb#call"]],
-      "validate" => ["M5", ["spec/foo_spec.rb"]],
-      "report"   => ["M5", []]
-    }.each do |verb, (milestone, args)|
-      it "says #{verb} lands in #{milestone} rather than pretending to work" do
-        _stdout, stderr, status = run_cli(verb, *args)
+  describe "pin" do
+    it "exits 2 when it is not pointed at an app, since there is no world to build" do
+      _stdout, stderr, status = run_cli("pin", target("invoice_calculator.rb", "call"))
 
-        expect(status.exitstatus).to eq(1)
-        expect(stderr).to include("lands in #{milestone}")
+      expect(status.exitstatus).to eq(2)
+      expect(stderr).to include("Rails application root")
+    end
+
+    # `--snapshot insta|approvals` is in the spec's CLI surface and is deliberately
+    # not built (spec v0.3 section 13.1 descope levers). Refusing before the probe
+    # runs is the point: a user who asked for insta and silently got inline literals
+    # would commit the wrong artifact and only find out in review.
+    %w[insta approvals].each do |backend|
+      it "refuses the unbuilt #{backend} backend before doing any work" do
+        _stdout, stderr, status = run_cli(
+          "pin", "--snapshot", backend, target("invoice_calculator.rb", "call")
+        )
+
+        expect(status.exitstatus).not_to eq(0)
+        expect(stderr).to include("#{backend} snapshot backend is not built yet")
+        expect(stderr).to include("only `inline` is")
+        expect(stderr).to include("where a reviewer can read it")
       end
+    end
+
+    it "rejects a backend name that is not in the spec at all" do
+      _stdout, stderr, status = run_cli("pin", "--snapshot", "yaml", target("invoice_calculator.rb", "call"))
+
+      expect(status.exitstatus).not_to eq(0)
+      expect(stderr.downcase).to include("yaml")
+    end
+
+    it "accepts the default backend without comment" do
+      _stdout, stderr, _status = run_cli("pin", "--snapshot", "inline", target("invoice_calculator.rb", "call"))
+
+      expect(stderr).not_to include("snapshot backend")
+    end
+  end
+
+  describe "report" do
+    it "says so when there is no report to print yet" do
+      _stdout, stderr, status = run_cli("report", "--app", File.join(ROOT, "spec", "fixtures", "apps", "cyclic_app"))
+
+      expect(status.exitstatus).to eq(2)
+      expect(stderr).to include("Run `pinspec pin` first")
     end
   end
 end

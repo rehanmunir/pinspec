@@ -1,0 +1,9 @@
+default: &default
+  adapter: postgresql
+  host: localhost
+  username: <%= ENV["USER"] %>
+  pool: 5
+
+test:
+  <<: *default
+  database: pinspec_rails61_legacy_test

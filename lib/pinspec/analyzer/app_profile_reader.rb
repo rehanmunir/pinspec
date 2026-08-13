@@ -125,7 +125,10 @@ module Pinspec
 
         gems = {}
 
-        File.foreach(path) do |line|
+        # Source.read, not File.foreach: a lock is someone else's file and `foreach`
+        # tags each line with the locale's encoding, which is the crash this project
+        # already fixed once for source files.
+        Source.read(path).each_line do |line|
           # Resolved specs sit at exactly four spaces; their dependencies at six,
           # and DEPENDENCIES entries at two, so the indent does the disambiguating.
           if (spec = line.match(/^ {4}([a-zA-Z0-9._-]+) \(([^)]+)\)$/))
@@ -135,7 +138,18 @@ module Pinspec
           end
         end
 
+        @ruby_version ||= ruby_version_file
         gems
+      end
+
+      # A lock does not always carry a RUBY VERSION section - Open Food Network's does
+      # not - and "unknown" in a client-facing report header is a worse answer than the
+      # one sitting in `.ruby-version`, which is where the app states it.
+      def ruby_version_file
+        path = File.join(@root, ".ruby-version")
+        return nil unless File.file?(path)
+
+        Source.read(path).strip[/\d+\.\d+(\.\d+)?/]
       end
 
       def gem?(gems, name)
@@ -245,7 +259,7 @@ module Pinspec
         @config_sources ||= ["config/application.rb", "config/environments/test.rb"]
                             .map { |relative| File.join(@root, relative) }
                             .select { |path| File.file?(path) }
-                            .map { |path| File.read(path) }
+                            .map { |path| Source.read(path) }
       end
 
       def helper_sources
@@ -253,7 +267,7 @@ module Pinspec
                             .flat_map { |pattern| Dir[File.join(@root, pattern)] }
                             .select { |path| File.file?(path) }
                             .sort
-                            .map { |path| [path, File.read(path)] }
+                            .map { |path| [path, Source.read(path)] }
       end
 
       def detect_db_cleaner_strategy(gems)
@@ -308,7 +322,7 @@ module Pinspec
       end
 
       def load_database_yml(path)
-        stripped = File.read(path).gsub(/<%=?.*?%>/m, "erb")
+        stripped = Source.read(path).gsub(/<%=?.*?%>/m, "erb")
         YAML.safe_load(stripped, aliases: true, permitted_classes: [Symbol])
       rescue StandardError => e
         note(:unreadable_database_yml,
@@ -328,7 +342,7 @@ module Pinspec
 
       def scan_models
         Dir[File.join(@root, MODEL_GLOB)].sort.each do |path|
-          result = Prism.parse(File.read(path))
+          result = Prism.parse(Source.read(path))
 
           unless result.success?
             next note(:unparsable_model, "#{path} is not valid Ruby; its macros were not scanned")

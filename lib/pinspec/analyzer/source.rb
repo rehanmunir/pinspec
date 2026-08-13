@@ -9,7 +9,29 @@ module Pinspec
     # and the decoder in particular is a contract - "record source text, never an
     # evaluated value" only holds if every reader agrees on what that means.
     module Source
+      # Every file pinspec reads belongs to somebody else, and a real Rails app has
+      # non-ASCII in it - translated strings, an accented name in a comment, a
+      # currency symbol. Ruby tags `File.read` with the LOCALE's encoding, so on a
+      # machine with `LANG` unset that is US-ASCII, and the first `scan` over a UTF-8
+      # byte raises `invalid byte sequence in US-ASCII` - a crash whose message names
+      # pinspec's regex and says nothing about the file that caused it.
+      #
+      # This is not a corner case: `LANG` is routinely unset in CI containers, and
+      # pinspec's own :hostile verify config runs `LANG=C` on purpose. Found on the
+      # first `analyze` of the first real application.
+      #
+      # `scrub` rather than raise: a stray invalid byte in one comment must not take
+      # down a report about 93 tables. Callers get valid UTF-8 or a replacement
+      # character, never an exception.
+      def self.read(path)
+        File.read(path, mode: "rb:BOM|UTF-8").scrub
+      end
+
       private
+
+      def read_source(path)
+        Source.read(path)
+      end
 
       def each_node(node, &block)
         return unless node

@@ -86,7 +86,7 @@ module Pinspec
       private
 
       def parse_file(path)
-        result = Prism.parse(File.read(path))
+        result = Prism.parse(Source.read(path))
 
         unless result.success?
           first = result.errors.first

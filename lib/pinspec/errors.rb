@@ -50,6 +50,7 @@ module Pinspec
       opaque_constructor
       unknown_column_type
       apartment
+      unresolvable_parameter
     ].freeze
 
     attr_reader :reason

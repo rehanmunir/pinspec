@@ -16,7 +16,7 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
     subject(:graph) { read("basic_schema") }
 
     it "finds every table" do
-      expect(graph.table_names).to eq(%w[customers invoices line_items products])
+      expect(graph.table_names).to eq(%w[customers invoices line_items products reports])
     end
 
     it "adds the implicit primary key Rails does not write out" do

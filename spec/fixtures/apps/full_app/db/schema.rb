@@ -10,6 +10,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_120000) do
 
   create_table "companies", force: :cascade do |t|
     t.string "name", null: false
+    t.index ["name"], name: "index_companies_on_name", unique: true
   end
 
   create_table "people", force: :cascade do |t|
@@ -37,6 +38,17 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_120000) do
     t.datetime "created_at", null: false
     t.index ["company_id", "status"], name: "index_orders_on_company_and_status", unique: true
     t.index ["status"], name: "index_orders_on_status", where: "(status <> 'cancelled'::text)"
+  end
+
+  # Schema-driven and non-trivial: a required parent, a nullable one that must be
+  # left alone, both temporal kinds, and a length-limited string.
+  create_table "contracts", force: :cascade do |t|
+    t.references "company", null: false, foreign_key: true
+    t.bigint "warehouse_id"
+    t.string "title", null: false
+    t.string "code", limit: 4, null: false
+    t.datetime "signed_at", null: false
+    t.date "starts_on", null: false
   end
 
   create_table "legacy_codes", id: false, primary_key: "code", force: :cascade do |t|

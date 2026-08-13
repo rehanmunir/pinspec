@@ -12,6 +12,15 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
   describe "a plain modern app" do
     subject(:app) { profile("basic_app") }
 
+    # A real lock does not always carry a RUBY VERSION section (Open Food Network's
+    # does not), and "unknown" in a client-facing report header is a worse answer than
+    # the one the app states in `.ruby-version`.
+    it "falls back to .ruby-version when the lock does not say" do
+      engine = described_class.read(File.expand_path("../fixtures/apps/engine_app", __dir__))
+
+      expect(engine.ruby_version).to eq("3.4.6")
+    end
+
     it "reads the Rails and Ruby versions from Gemfile.lock" do
       expect(app.rails_version).to eq("7.1.3.2")
       expect(app.ruby_version).to eq("3.2.2")

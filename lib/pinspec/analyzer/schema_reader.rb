@@ -93,7 +93,7 @@ module Pinspec
       def read_source
         raise TargetNotFound, "no such file: #{@path}" unless File.file?(@path)
 
-        result = Prism.parse(File.read(@path))
+        result = Prism.parse(Source.read(@path))
 
         unless result.success?
           first = result.errors.first

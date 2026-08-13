@@ -17,17 +17,36 @@ Design: [`docs/spec-v0.3.md`](docs/spec-v0.3.md). The review that produced it:
 
 ## Status
 
-Pre-alpha. **All four M1 analyzer modules (M-01 to M-04).** Nothing executes
-target-app code yet - `analyze` and `plan` read source, not a running app.
+`0.1.0`. **M0 through M4 complete, and M5's code with them.** `pin` captures,
+emits and verifies a characterization spec that runs green with zero manual
+edits, on two real Rails apps on live PostgreSQL - Rails 7.2 / Ruby 3.3 under the
+transaction regime and Rails 6.1 / Ruby 3.1 under truncation.
+
+Proved against a real application too: **Open Food Network** (Rails 7.2.3.2 on
+Spree - 93 tables, 113 factories, 335 gems), unmodified apart from
+`.ruby-version`. Six service objects pinned, three verify configurations green on
+each, all six passing together under the app's own `rspec`, about 14 seconds per
+target, one import cluster from real sampled rows. That run found **nine defects
+no fixture had reached** - including a pin of pinspec's own inability to build a
+world, dressed as the application's behaviour, and a verifier that reported
+`0 examples` as green three times over. Both are fixed and guarded; the full list
+is in the [changelog](CHANGELOG.md).
+
+The one bar it did not clear is mutation strength: real service objects scored
+**50% (weak)** and **16.7% (worthless)**, against a target of 60% strong. That is
+a finding about pinspec, not a rounding error - a boundary-value corpus builds the
+smallest world that can exist, and the smallest world does not reach the
+branches.
 
 | Verb | Status |
 | --- | --- |
 | `pinspec version` | works |
-| `pinspec plan FILE#METHOD` | resolves the target and prints its profile; SetupPlan generation lands in M2 |
-| `pinspec analyze [APP]` | complete: app profile, schema, factories, and hazard warnings |
-| `pinspec capture` | M3 |
-| `pinspec pin` | M4 |
-| `pinspec validate` / `report` | M5 (backend chosen and proven - see the [M-11 spike](docs/spike-m11-mutation-adapter.md)) |
+| `pinspec analyze [APP]` | app profile, schema, factories, and hazard warnings |
+| `pinspec plan FILE#METHOD --app PATH` | renders the SetupPlan and the input cases that will run against it |
+| `pinspec capture FILE#METHOD --app PATH` | runs the probe in the app, writes `observations.json` |
+| `pinspec pin FILE#METHOD --app PATH` | capture, emit the spec, verify it in three configurations |
+| `pinspec validate FILE#METHOD --app PATH` | scores the pin by aspect (needs Ruby >= 3.4 in pinspec's own gemset) |
+| `pinspec report` | writes the client-facing `report.md` |
 
 ## What M-01 does
 
@@ -57,6 +76,201 @@ Targets can be qualified when a bare name is ambiguous:
 pinspec plan app/services/billing.rb#Reconciler#call    # instance method
 pinspec plan app/services/billing.rb#Reconciler.call    # class method
 ```
+
+## What M-09 and M-13 do
+
+The thing the whole project is for:
+
+```
+$ pinspec pin app/services/status_reporter.rb#call --app .
+capture  StatusReporter#call
+  runs           2 boots
+  stable         2 of 2
+
+emitted  spec/characterization/status_reporter_call_spec.rb
+  pinned         c001, c002
+  aspects        2 return
+
+verify
+  isolated       green (2 examples)
+  hostile        green (2 examples)
+  neighbored     green (2 examples)
+```
+
+Three configurations, because one run on the capture machine proves
+repeatability rather than portability: `:hostile` changes the timezone, the locale
+and the RSpec seed; `:neighbored` runs the file twice in one process so
+accumulated state shows up.
+
+The emitted spec **forces** the capture's answer on every axis rather than
+inheriting the suite's - isolation regime, queue adapter, clock, seed, locale,
+zone - because a suite that truncates instead of transacting, or runs jobs inline,
+would otherwise turn a green capture into a red or vacuous spec.
+
+## What M-11 does
+
+Scores a pin by asking a mutation backend to break the target and seeing which
+aspect of the pin notices. Each aspect is scored in its own run against its own
+spec file, because a single number over the whole pin hides both the blindness
+and the coverage:
+
+```
+$ pinspec validate app/services/invoice_calculator.rb#call --app .
+InvoiceCalculator#call
+  return         66.7% (weak)   killed 2, survived 1
+  jobs           50.0% (weak)   killed 1, survived 1
+  skipped        error, mail (not asserted by this pin)
+
+  no mutant survived every aspect: together, these pins cover the target
+```
+
+Those two numbers are the argument for the whole design. The return pin scored
+66.7% because it slept through a deleted `perform_later`; the job pin scored 50%
+because it slept through the arithmetic. Each is blind to what the other catches,
+and nothing got through both - which is invisible if you pin only the return
+value, as everyone does first.
+
+A pin whose value is `{"t":"seq"}` or truncated is never reported as strong
+however well it scores, because it asserts less than the score implies. An aspect
+the pin does not assert is skipped rather than scored, since scoring an absent
+aspect produces a vacuous 100%.
+
+`--validate` needs Ruby >= 3.4 in pinspec's own gemset, which the backend
+requires. The rest of pinspec keeps its 3.2 floor, and the app under test keeps
+whatever Ruby it has - the suite runs in the app's own runtime through a generated
+wrapper. Without the backend, `validate` refuses with a message naming the floor
+and the install; nothing else is affected.
+
+## What M-12 does
+
+Writes the markdown report a client reads instead of reading the pins
+(`tmp/pinspec/report.md`), organised so the caveats cannot be skipped: what was
+pinned, what was refused and why, which isolation regime the reader has
+inherited, every place a pin asserts less than it appears to, what was rewritten
+out of imported rows, and hashed provenance.
+
+Its first paragraph says that a pin is not a judgement that the behaviour is
+correct. pinspec pins bugs on purpose - that is what characterization means - and
+a reader who misses this will "fix" the pin.
+
+## What M-10 does
+
+Names the examples. This is the only place a language model touches the output,
+and it is kept away from values structurally rather than by instruction: the
+request carries a case id, an origin, an outcome *kind*, the class and method
+name, and parameter *names*. No pinned value is put in, so no reply can be one
+laundered back. A description is then discarded if it contains a hash rocket, a
+serializer tag, `expect`, `eq(`, a three-digit number, or more than two quotes -
+tested by handing it a model that ignores every instruction it was given.
+
+`--no-llm` is the default. The deterministic namer is what runs unless asked
+otherwise, and a naming service that fails is not allowed to fail a pin.
+
+## What M-07 does
+
+Runs a generated probe inside the target application and records what the code
+actually does.
+
+```
+capture  InvoiceCalculator#call
+  plan           64249d86779e (isolation transaction)
+  runs           2 boots
+  cases          3
+  stable         3 of 3
+  compared       status, return_value, error, enqueued_jobs, mail_deliveries, db_delta
+
+  stable, and therefore pinnable:
+    c001  returned record, 2 job(s)
+    c002  returned record, 2 job(s)
+    c003  returned record, 2 job(s)
+```
+
+The probe is generated (so it can be read before it runs), stdlib-only (so
+nothing is added to a client's Gemfile), and held to a Ruby 2.6 syntax floor (so
+it runs in the app's Ruby, not pinspec's). Every case is wrapped in a transaction
+and rolled back; the rollback is proved by row count in the integration spec.
+
+**No id ever reaches a snapshot.** Sequences are not transactional, so a
+rolled-back case still advances them and a pinned id differs on the next run. A
+foreign key pointing at a record the plan built becomes a ref, and everything
+else id-shaped becomes `{"t":"seq"}`:
+
+```json
+{"t": "record", "class": "Invoice", "attributes": {
+  "customer_id": {"t": "ref", "v": "customer_1"},
+  "total":       {"t": "decimal", "v": "110.0"}
+}}
+```
+
+Ids hide in two more places, both found by running against a real app: a bare
+`perform_later(record.id)` in job arguments, and a GlobalID string
+(`gid://app/Invoice/22`) from `deliver_later`. Both are resolved to the record
+they name, or keep the model name and refuse the id.
+
+## What M-06 does
+
+Generates the arguments pinspec will actually invoke the target with, and shapes
+real rows into something both hosts can rebuild.
+
+```
+input cases  5 (1 defaults, 4 boundary)
+  c001 (defaults) new(invoice_1, tax_rate: 0.08).call
+  c002 (boundary) new(invoice_1, tax_rate: 0.0).call
+  c003 (boundary) new(invoice_1, tax_rate: 1.0).call
+  c004 (boundary) new(invoice_1, tax_rate: -1.0).call
+  c005 (boundary) new(invoice_1).call
+```
+
+One all-defaults case first, then one parameter varied per case, interleaved
+across the constructor and the method so a small budget reaches both. `c005`
+omits the argument entirely, which runs the method's own default expression. A
+model-typed parameter is always the plan's ref, never an id.
+
+Redaction is **domain- and length-preserving**: `rehan.munir@acme.co` keeps
+`@acme.co` and keeps its length, a phone number keeps every separator. That is
+the whole difference from a naive redactor - a target that routes on the domain
+or validates on length observes the same behaviour it always did. When the target
+actually reads a rewritten attribute, the cluster is flagged and the reason
+recorded.
+
+Sampled rows are hydrated at plan time: primary keys dropped, foreign keys
+rewritten to refs, provenance hashed. The sampler itself is a generated
+read-only script that runs in the app's own runtime, so pinspec needs no database
+gem and works on any adapter.
+
+## What M-05 does
+
+Turns a target and an app profile into a **SetupPlan**: the ordered list of steps
+that builds the world the target runs in. Both hosts execute this same plan, so
+anything it fails to say is something the probe and the emitted spec are free to
+disagree about.
+
+```
+$ pinspec plan --app . app/services/contract_reviewer.rb#call
+setup plan  dea5744a1e6c (generation 1, isolation truncation)
+   1. freeze_time 2026-01-01T12:00:00Z
+   2. seed_random 42
+   3. set_locale :de
+   4. set_zone "UTC"
+   5. create_record company_1 <- Company.create!
+   6. create_record contract_1 <- Contract.create! company_id=>company_1
+   7. set_tenant company_1
+   8. create_record person_1 <- Person.create!
+   9. stub_current devise_user person_1
+  10. set_whodunnit person_1
+  11. construct_subject ContractReviewer (new)
+
+  parameter bindings:
+    contract -> contract_1
+```
+
+The plan is pure data - no connection, no app code, no app process - so it can be
+read before anything is run. `plan_id` is content-addressed, so the same target
+always yields the same plan and a changed plan is visibly a different one.
+
+It refuses rather than guessing: `ros-apartment` tenancy, a NOT NULL column whose
+type has no honest value, two tables that require each other, and a NOT NULL
+foreign key to a table's own row.
 
 ## What M-04 does
 
@@ -178,18 +392,38 @@ passes its own value and the default never runs.
 
 ## Development
 
-Requires Ruby >= 3.2 (`Data.define`, prism).
+Requires Ruby >= 3.2 (`Data.define`, prism). `--validate` additionally needs 3.4,
+which is the mutation backend's floor and not pinspec's.
 
 ```bash
 bundle install
 bundle exec rspec
-LANG=C LC_ALL=C bundle exec rspec   # what someone else's CI looks like
+LANG=C LC_ALL=C TZ=Etc/GMT+8 bundle exec rspec   # what someone else's CI looks like
 ```
 
-Fixture targets under `spec/fixtures/targets/` are parsed, never loaded, so they
-reference constants (`ApplicationRecord`, `Interactor`, `Dry::Initializer`) that
-do not exist in this repo. That is the point: M-01 must work against a repo you
-have not booted.
+That second run is not decoration. pinspec's own verification matrix runs under a
+hostile locale, so a non-ASCII string literal anywhere in the shipped source
+breaks it - guarded by `spec/ascii_output_spec.rb`, which parses pinspec with
+Prism rather than grepping it.
+
+Two kinds of fixture, for two different reasons:
+
+- `spec/fixtures/targets/` is parsed, never loaded, so it references constants
+  (`ApplicationRecord`, `Interactor`, `Dry::Initializer`) that do not exist in
+  this repo. That is the point: M-01 must work against a repo you have not booted.
+- `spec/fixtures/apps/` holds two Rails applications that really boot, on live
+  PostgreSQL, on two different Rubies. The integration and equivalence specs skip
+  rather than fail when these have not been prepared:
+
+```bash
+cd spec/fixtures/apps/rails71_basic && bundle install && RAILS_ENV=test bundle exec rails db:schema:load
+cd spec/fixtures/apps/rails61_legacy && bundle install && RAILS_ENV=test bundle exec rails db:schema:load
+```
+
+`spec/equivalence/host_equivalence_spec.rb` is the one to read first: it holds the
+probe host and the spec host to the same answer across all six contract axes, and
+each fixture is deliberately configured to *disagree* with the plan so that
+agreement cannot happen by luck.
 
 ## License
 

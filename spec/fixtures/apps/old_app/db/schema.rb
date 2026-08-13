@@ -41,6 +41,13 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_094500) do
     t.index ["sku"], name: "index_products_on_sku", unique: true
   end
 
+  create_table "reports", force: :cascade do |t|
+    t.string "title", null: false
+    # invoices.number is a string; this one is an integer. A parameter named
+    # `number` therefore has no unambiguous type in this schema.
+    t.integer "number"
+  end
+
   add_foreign_key "invoices", "customers"
   add_foreign_key "line_items", "invoices", on_delete: :cascade
 end

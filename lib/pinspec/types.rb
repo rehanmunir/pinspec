@@ -105,6 +105,139 @@ module Pinspec
     end
   end
 
+  # -------------------------------------------------------------- M-06 inputs --
+
+  # Every value in these four collections is serializer-v3 tagged (see Tags), and
+  # a model-typed argument is a {"t":"ref"} rather than anything id-shaped.
+  #
+  # origin:
+  #   :defaults    every parameter at its declared default - always case one
+  #   :boundary    one parameter varied, the rest at defaults (OFAT)
+  #   :sampled     built from a real row
+  #   :stratified  one row per distinct status/state value
+  InputCase = Data.define(:id, :ctor_args, :ctor_kwargs, :args, :kwargs, :origin) do
+    def signature
+      [ctor_args, ctor_kwargs, args, kwargs]
+    end
+
+    def to_s
+      ctor = render(ctor_args, ctor_kwargs)
+      meth = render(args, kwargs)
+
+      receiver = ctor_args.empty? && ctor_kwargs.empty? ? "" : "new(#{ctor})."
+      invocation = meth.empty? ? "call" : "call(#{meth})"
+
+      "#{id} (#{origin}) #{receiver}#{invocation}"
+    end
+
+    private
+
+    def render(positional, keyword)
+      (Array(positional).map { |v| Tags.describe(v) } +
+        Hash(keyword).map { |name, v| "#{name}: #{Tags.describe(v)}" }).join(", ")
+    end
+  end
+
+  InputCorpus = Data.define(:cases, :setup_plan) do
+    def size
+      cases.size
+    end
+
+    def origins
+      cases.group_by(&:origin).transform_values(&:size)
+    end
+  end
+
+  # A sampled row plus the belongs_to closure it cannot exist without, hydrated at
+  # plan time into attribute hashes. The probe never opens the sample connection:
+  # it replays these as :import_record steps, which is what makes a snapshot
+  # portable to the emitted spec (spec v0.3 §0, breaking change 1 of v0.2).
+  #
+  # `redacted` names the attributes that were rewritten, and `flags` carries
+  # :redaction_read when the target reads one of them - a rewritten value the
+  # target inspects is a pin of behaviour that never happens.
+  ImportCluster = Data.define(:model, :table, :name, :attrs, :source, :redacted, :flags) do
+    def redaction_read?
+      Array(flags).include?(:redaction_read)
+    end
+  end
+
+  # ---------------------------------------------------------------- M-05 plan --
+
+  # A frozen instant, not "now". Both hosts travel to exactly this, so anything
+  # derived from the clock is identical in the probe and in the emitted spec.
+  PINSPEC_EPOCH = "2026-01-01T12:00:00Z"
+  PINSPEC_SEED  = 42
+
+  STEP_KINDS = %i[
+    freeze_time seed_random set_locale set_zone set_flag
+    create_record import_record
+    set_tenant stub_current set_whodunnit
+    construct_subject
+  ].freeze
+
+  SetupStep = Data.define(:kind, :payload) do
+    def ref
+      payload[:name]
+    end
+
+    def to_s
+      case kind
+      when :freeze_time       then "freeze_time #{payload[:at]}"
+      when :seed_random       then "seed_random #{payload[:seed]}"
+      when :set_locale        then "set_locale #{payload[:locale].inspect}"
+      when :set_zone          then "set_zone #{payload[:zone].inspect}"
+      when :set_flag          then "set_flag #{payload[:flag].inspect} = #{payload[:enabled]}"
+      when :create_record     then "create_record #{payload[:name]} <- #{create_source}"
+      when :import_record     then "import_record #{payload[:name]} <- #{payload[:source]}"
+      when :set_tenant        then "set_tenant #{payload[:record_ref]}"
+      when :stub_current      then "stub_current #{payload[:kind]} #{payload[:record_ref]}"
+      when :set_whodunnit     then "set_whodunnit #{payload[:record_ref]}"
+      when :construct_subject then "construct_subject #{payload[:class]} (#{payload[:kind]})"
+      end
+    end
+
+    private
+
+    def create_source
+      base = payload[:factory] ? "factory(:#{payload[:factory]})" : "#{payload[:model]}.create!"
+      refs = payload[:assoc_refs]
+      refs.nil? || refs.empty? ? base : "#{base} #{refs.map { |c, r| "#{c}=>#{r}" }.join(', ')}"
+    end
+  end
+
+  # `bindings` maps a parameter name to the ref that satisfies it. Spec §6 lists
+  # four fields; this is a fifth, and it is the contract between M-05 and M-06:
+  # without it, the corpus builder and the probe would each have to re-derive
+  # which record satisfies which argument, and re-derivation is how two sides
+  # drift apart.
+  #
+  # `notes` records decisions a reader would otherwise have to reverse-engineer -
+  # a polymorphic type that was chosen, a factory that was declined.
+  SetupPlan = Data.define(
+    :steps, :isolation, :env_fingerprint, :bindings, :notes, :generation, :plan_id
+  ) do
+    def steps_of(kind)
+      steps.select { |step| step.kind == kind }
+    end
+
+    def refs
+      steps.filter_map(&:ref)
+    end
+
+    def record_steps
+      steps.select { |step| %i[create_record import_record].include?(step.kind) }
+    end
+
+    def subject_step
+      steps.find { |step| step.kind == :construct_subject }
+    end
+
+    def binding_for(param_name)
+      bindings[param_name.to_sym]
+    end
+  end
+
   # --------------------------------------------------------------- M-04 app --
 
   # Spec v0.3 §12.7, quoted verbatim by `analyze` and by every report, because a

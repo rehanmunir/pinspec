@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.description = <<~DESC
     Point pinspec at a Rails service object or model method and it works out how to
     invoke it, executes it against your test database, and emits an idiomatic RSpec
-    file that freezes the current behavior — then verifies that file runs green in
+    file that freezes the current behavior - then verifies that file runs green in
     your app's own test environment.
   DESC
   spec.homepage = "https://github.com/rehanmunir/pinspec"
@@ -22,8 +22,13 @@ Gem::Specification.new do |spec|
   # (spec v0.3 §0.1) because it runs inside the target app's Ruby, not this one.
   spec.required_ruby_version = ">= 3.2.0"
 
-  spec.metadata["source_code_uri"] = spec.homepage
-  spec.metadata["changelog_uri"]   = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata["source_code_uri"]    = spec.homepage
+  spec.metadata["changelog_uri"]      = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata["documentation_uri"]  = "#{spec.homepage}/blob/main/docs/spec-v0.3.md"
+  spec.metadata["bug_tracker_uri"]    = "#{spec.homepage}/issues"
+
+  # A leaked API key must not be enough to publish under this name.
+  spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = Dir[
     "lib/**/*.rb",
