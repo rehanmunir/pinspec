@@ -2,17 +2,6 @@
 
 require "prism"
 
-# pinspec's own verification matrix runs specs under `LANG=C LC_ALL=C`
-# (spec v0.3 §7 M-13, the :hostile config). A CLI that writes non-ASCII to a
-# stream under that locale produces mojibake in exactly the logs someone will be
-# reading when something has already gone wrong.
-#
-# Comments are exempt: Ruby reads source as UTF-8 regardless of locale, and a
-# comment never reaches a stream. String literals are not exempt, because any of
-# them can end up in an error message.
-#
-# This guard is Prism reading pinspec's own source, which is the same thing
-# M-01 does to a target.
 RSpec.describe "user-facing output" do
   ROOT_DIR = File.expand_path("..", __dir__)
 

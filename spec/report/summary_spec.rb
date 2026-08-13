@@ -2,13 +2,7 @@
 
 require "tmpdir"
 
-# M-12. This report is the artifact a client reads instead of reading the pins, so
-# the property under test is not "it renders" but "it cannot render a reassuring
-# version of an unreassuring result". Every caveat here exists because the pin is
-# narrower than it looks, and a report that omitted it would be worse than no report.
 RSpec.describe Pinspec::Report::Summary do
-  # The real fixture profile, read from files - no database - so the report is
-  # rendered against shapes the rest of the pipeline actually produces.
   let(:app_root) { File.expand_path("../fixtures/apps/rails71_basic", __dir__) }
   let(:profile) { Pinspec::Analyzer::AppProfileReader.read(app_root) }
   let(:out_dir) { Dir.mktmpdir }
@@ -48,8 +42,6 @@ RSpec.describe Pinspec::Report::Summary do
   end
 
   describe "the frame it puts around everything" do
-    # The single most important sentence in the document. A characterization pin of a
-    # bug is a correct pin, and a reader who thinks otherwise will "fix" the pin.
     it "says plainly that a pin is not a judgement that the behaviour is right" do
       rendered = summary.render
 
@@ -109,8 +101,6 @@ RSpec.describe Pinspec::Report::Summary do
       expect(rendered).to include("freeze an accident")
     end
 
-    # Time.zone does not govern Time.now. A pin over a process-clock read holds only
-    # under the TZ that captured it, and a reader has to be told before they trust it.
     it "declares a process-clock read and the TZ the pin is bound to" do
       rendered = summary(target: clock_target).render
 
@@ -133,8 +123,6 @@ RSpec.describe Pinspec::Report::Summary do
       expect(rendered).to include("use_transactional_fixtures")
     end
 
-    # The divergence from production that pinspec chooses not to hide: it does not
-    # fake the callback, so the pin genuinely says less than production does.
     it "names the models whose callbacks are therefore unpinned" do
       with_callback = profile.with(
         model_findings: profile.model_findings +
@@ -150,8 +138,6 @@ RSpec.describe Pinspec::Report::Summary do
       expect(rendered).to include("documented divergence from production")
     end
 
-    # And says nothing when there is nothing to say, rather than printing an
-    # ominous empty paragraph.
     it "stays quiet when no model declares one" do
       expect(profile.after_commit_models).to be_empty
       expect(summary.render).not_to include("does not fake them")
@@ -183,8 +169,6 @@ RSpec.describe Pinspec::Report::Summary do
       expect(rendered).to include("preserve **domain and length**")
     end
 
-    # A redactor that changed behaviour would be worse than none, so the report has
-    # to state the property, not just the fact that redaction happened.
     it "explains why a length-preserving rewrite matters" do
       expect(rendered).to include("routes on a domain or validates a length")
     end
@@ -221,9 +205,6 @@ RSpec.describe Pinspec::Report::Summary do
       expect(rendered).to include("neighbored")
     end
 
-    # An omitted section reads as "nothing to say". For verification that would be a
-    # lie of omission: a report written by `validate` carries scores and no
-    # verification, and a client cannot tell that from a missing section.
     it "says verification was not run rather than omitting the section" do
       rendered = summary.render
 

@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-# M-02 acceptance, spec v0.3 §7. The fk_map examples matter most: it is the map
-# the probe uses to tell a foreign key from a quantity, and without it the
-# identity rewriting in T1-2 cannot work at all.
 RSpec.describe Pinspec::Analyzer::SchemaReader do
   def read(name)
     described_class.parse(File.expand_path("../fixtures/schemas/#{name}.rb", __dir__))
@@ -83,7 +80,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
     end
 
     it "derives the implicit column of add_foreign_key against columns that exist" do
-      # "invoices".singularize could plausibly be "invoic"; only the schema knows.
       fk = graph.fk_for("line_items", "invoice_id")
 
       expect(fk).not_to be_nil
@@ -117,9 +113,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
       expect(graph.fk_for("orders", "owner_id")).to be_nil
     end
 
-    # These two are the cases that matter: the stem resolves to a real table, so
-    # every tier *would* happily claim the column. Rewriting a polymorphic id to
-    # one table is how the probe ends up rewriting the wrong integer.
     it "excludes a polymorphic id whose stem does match a table" do
       expect(graph.table("audit_entries").column("company_id")).not_to be_nil
       expect(graph.table("companies")).not_to be_nil
@@ -137,7 +130,7 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
     it "infers an undeclared association from the column name, and flags it" do
       fk = graph.fk_for("orders", "person_id")
 
-      expect(fk.to_table).to eq("people") # irregular plural, resolved against real tables
+      expect(fk.to_table).to eq("people")
       expect(fk.source).to eq(:heuristic)
       expect(fk).to be_heuristic
     end
@@ -155,8 +148,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
     end
 
     it "derives an implicit column that a first-guess singularizer would get wrong" do
-      # "addresses" strips to "addresse" before "address"; only the column list
-      # settles it. Nothing else in this schema forces that check.
       fk = graph.fk_for("orders", "address_id")
 
       expect(fk.to_table).to eq("addresses")
@@ -195,7 +186,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
       expect(graph.table("audit_entries").column("recorded_at").type).to eq(:timestamp)
     end
 
-    # The acceptance line: a create_view and a PostGIS column both surface.
     it "records unknown DSL statements without failing" do
       kinds = graph.skipped_statements.map(&:kind)
 
@@ -255,11 +245,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
         .to eq("legacy_codes")
     end
 
-    # A documented trade, not an oversight. The _type sibling rule cannot tell a
-    # polymorphic pair from a real foreign key beside a label column, and drops
-    # both. Dropping means the id stays a raw integer, which M-08 reports as
-    # :identity_churn - visible instability. Claiming it would mean rewriting an
-    # id into the wrong table and pinning a lie that looks green.
     it "also drops a real foreign key that sits beside an unrelated _type column" do
       expect(graph.table("invoices").column("customer_id")).not_to be_nil
       expect(graph.table("customers")).not_to be_nil

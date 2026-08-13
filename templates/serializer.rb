@@ -1,44 +1,17 @@
 # frozen_string_literal: true
 
-# PINSPEC SERIALIZER, serializer version 3 (spec v0.3 section 9).
-#
-# ONE SOURCE, TWO HOSTS. This exact file is embedded into the generated probe and
-# will be written out as spec/characterization/support/pinspec_serializer.rb by
-# M-09. Anything that drifts between the two hosts is the bug class section 4c
-# exists to prevent, so this file is never edited in place in either host - it is
-# regenerated from templates/serializer.rb.
-#
-# Ruby 2.6 syntax floor: this runs in the target app's Ruby, not pinspec's. No
-# filter_map, no #then, no endless methods, no hash shorthand, no rightward
-# assignment.
-#
-# The load-bearing rule: an id never appears in a snapshot. Ids come from
-# sequences, sequences are not transactional, and a rolled-back case leaves the
-# sequence advanced - so a pinned id differs on the next run and on every other
-# machine. A foreign key pointing at a record the plan built becomes a ref; every
-# other id-shaped value becomes {"t":"seq"}, which asserts "an integer is here"
-# and nothing more.
 module PinspecSerializer
   MAX_DEPTH = 4
   DEFAULT_MAX_COLLECTION = 50
 
-  # Dropped from every record: they differ on every run.
   VOLATILE = %w[created_at updated_at].freeze
   DB_FUNCTION_DEFAULT = /\A(?:gen_random_uuid|now|uuid_generate_v4|CURRENT_|nextval)/i.freeze
 
   class << self
-    # The spec host's entry point, and the reason this signature has three
-    # arguments rather than one. v0.2 specified `normalize(result)`, which cannot
-    # work: turning a live record into {"t":"ref"} requires the spec's OWN table of
-    # let!-bound records, and the fk_map to know which integers are keys. A missing
-    # ref is pinspec's bug, not a behaviour change, so it says so loudly rather
-    # than failing as an expectation.
     def normalize(value, refs:, fk_map:, max_collection: DEFAULT_MAX_COLLECTION)
       encode(value, refs: refs, fk_map: fk_map, max_collection: max_collection)
     end
 
-    # refs:    { "table:pk" => "invoice_1" } - the plan's identity map
-    # fk_map:  { "invoices.customer_id" => "customers" }
     def encode(value, refs: {}, fk_map: {}, max_collection: DEFAULT_MAX_COLLECTION)
       @refs = refs || {}
       @fk_map = fk_map || {}
@@ -48,20 +21,6 @@ module PinspecSerializer
       visit(value, 0, [])
     end
 
-    # A bare Integer carries no column name, so the FK map cannot help it - and
-    # `SyncJob.perform_later(invoice.id)` puts exactly that into a job's arguments.
-    # An id there churns between runs just as it would in an attribute.
-    #
-    # An id that unambiguously belongs to one known record becomes that record's
-    # ref. Ambiguity is left alone rather than guessed, because picking the wrong
-    # record would pin the wrong relationship.
-    #
-    # Collisions are not rare, they are the norm: in a test database every
-    # sequence starts at 1 and rows are created in lockstep, so customers.id and
-    # invoices.id are routinely the same integer. RETURNED_REF therefore wins any
-    # collision - a bare id in a side effect is overwhelmingly the record the
-    # target just produced, not an unrelated setup row that happens to share a
-    # number.
     RETURNED_REF = "__returned__"
 
     def build_id_index(refs)
@@ -104,8 +63,6 @@ module PinspecSerializer
       end
     end
 
-    # Only inside a bare value position: a record's own attributes go through
-    # encode_attribute, which knows the column name and is more precise.
     def encode_integer(value)
       ref = @id_index[value]
       return { "t" => "ref", "v" => ref } if ref && ref != :ambiguous
@@ -120,17 +77,8 @@ module PinspecSerializer
       { "t" => "float", "v" => value.round(10) }
     end
 
-    # gid://app-name/Invoice/22 - a GlobalID, which is how ActiveJob and
-    # `deliver_later` carry a record. The id hides inside a String, so the integer
-    # index cannot see it, and it churns exactly like a bare id would.
-    #
-    # The model name is stable and worth pinning; the id is not. Naming the model
-    # while refusing the id keeps the half of the assertion that means something.
     GLOBAL_ID = %r{\Agid://[^/]+/([A-Za-z0-9:_]+)/(.+)\z}.freeze
 
-    # A binary string makes JSON.generate raise, which crypto and file code hits
-    # constantly. pack("m0") rather than Base64: base64 left Ruby's default gems
-    # in 3.4, and this file may not require anything.
     def encode_string(value)
       if value.encoding == Encoding::ASCII_8BIT || !value.valid_encoding?
         return { "t" => "bin", "v" => [value].pack("m0"), "enc" => value.encoding.to_s }
@@ -196,8 +144,6 @@ module PinspecSerializer
       { "t" => "time", "v" => value.getutc.strftime("%Y-%m-%dT%H:%M:%S.%6NZ") }
     end
 
-    # The heart of it. Identity is a ref when the plan built this row, and the id
-    # column is dropped either way.
     def encode_record(record, depth, seen)
       table = record.class.table_name
       out = {
@@ -221,9 +167,6 @@ module PinspecSerializer
       out
     end
 
-    # Rewriting happens for EVERY record, not only the ones the plan created:
-    # "returns the record it just created" is the commonest service-object shape,
-    # and its foreign keys are raw integers that differ every run.
     def encode_attribute(table, name, value, depth, seen)
       target = @fk_map["#{table}.#{name}"]
 
@@ -239,8 +182,6 @@ module PinspecSerializer
       visit(value, depth + 1, seen)
     end
 
-    # An id-shaped value with nothing to point at: the record's own id (already
-    # dropped), a sibling the target created, or an *_ids array.
     def unresolvable_id?(name, value)
       return false if value.nil?
       return true if name.to_s =~ /_id\z/ && value.is_a?(Integer)

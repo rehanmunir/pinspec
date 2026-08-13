@@ -4,17 +4,9 @@ require "json"
 
 module Pinspec
   module Emit
-    # M-08. Joins the two runs by case id and decides what is safe to pin.
-    #
-    # The declared field set is the point. v0.2 said "deep-compare", which included
-    # `duration_ms` (never equal between runs) and `sql_fingerprints` (the most
-    # fragile field in the record, and opt-in for pinning anyway) - so the two least
-    # meaningful fields would have decided the fate of every pin.
     class StabilityFilter
-      # Compared always. Everything else is either informational or opt-in.
       COMPARED = %w[status return_value error enqueued_jobs mail_deliveries db_delta].freeze
 
-      # Compared only when SQL pins were requested.
       OPTIONAL = %w[sql_fingerprints].freeze
 
       NEVER_COMPARED = %w[duration_ms flags setup_error].freeze
@@ -57,7 +49,6 @@ module Pinspec
         @compare_sql ? COMPARED + OPTIONAL : COMPARED
       end
 
-      # runs: [Sandbox::Result, Sandbox::Result]
       def filter(runs)
         first, *rest = Array(runs)
         raise ArgumentError, "stability needs at least one run" if first.nil?
@@ -76,8 +67,6 @@ module Pinspec
       def verdict_for(observation, others)
         case_id = observation["case_id"]
 
-        # A case whose world could not be built is quarantined rather than pinned:
-        # the plan is the problem, not the target (spec v0.3 §7 M-05.15).
         if observation["status"] == "setup_error"
           return unstable(case_id, :setup_error, setup_diff(observation), observation)
         end
@@ -108,8 +97,6 @@ module Pinspec
         nil
       end
 
-      # Heuristic by design, and ordered so the specific causes win. "Unstable"
-      # without a cause is an accusation; with one it is a lead.
       def classify(field, mine, theirs)
         kinds = differing_tags(mine, theirs)
 
@@ -123,9 +110,6 @@ module Pinspec
         :external_io
       end
 
-      # Which tag kinds sit at the points where the two renderings disagree. An
-      # integer that changed between runs is almost always a sequence value: they
-      # are not transactional, so a rolled-back case still advances them.
       def differing_tags(mine, theirs)
         left = tag_pairs(mine)
         right = tag_pairs(theirs)
@@ -137,7 +121,6 @@ module Pinspec
         end
       end
 
-      # { path => [tag, value] } for every tagged node.
       def tag_pairs(value, path = "", out = {})
         case value
         when Hash
@@ -174,15 +157,12 @@ module Pinspec
         "#{error['class']}: #{error['message']}"
       end
 
-      # Capped, because a diff nobody reads is the same as no diff.
       def diff_excerpt(field, mine, theirs)
         left = render(mine).lines
         right = render(theirs).lines
         lines = ["field: #{field}"]
 
         [left.size, right.size].max.times do |index|
-          # Two lines are added per differing row, so the check has to leave room
-          # for both or the cap overshoots by one.
           break if lines.size + 2 > MAX_DIFF_LINES
           next if left[index] == right[index]
 

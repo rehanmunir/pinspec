@@ -1,7 +1,3 @@
-# Matrix row 30, and the reason this fixture exists: a zero-argument #call whose
-# dependencies are in the constructor, which RETURNS A RECORD IT JUST CREATED
-# carrying a foreign key - plus a job and a mail, so side-effect capture has
-# something to capture.
 class InvoiceCalculator
   def initialize(customer, tax_rate: 0.1)
     @customer = customer

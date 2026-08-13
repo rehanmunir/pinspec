@@ -5,11 +5,6 @@ require "json"
 
 module Pinspec
   module Runner
-    # Orchestrates M-07: plan, corpus, probe, two boots, stability, observations.json.
-    #
-    # Kept out of the CLI so that `capture` and `pin` share one path - a divergence
-    # between them would mean the thing that gets verified is not the thing that got
-    # captured.
     class Capture
       OUTPUT = "observations.json"
 
@@ -35,9 +30,6 @@ module Pinspec
         target_profile = Analyzer::TargetParser.parse(@target_file, @method)
         app_profile    = Analyzer::AppProfileReader.read(@app_root)
 
-        # A provisional plan first, to learn which tables the target's world is made
-        # of. Sampling needs that answer, and the plan needs the sampled rows - so
-        # the plan is built twice rather than either guessing.
         plan = Setup::ContextBuilder.build(target: target_profile, profile: app_profile, tz: probe_tz)
         imports = @sample ? sample_imports(plan, app_profile, target_profile) : []
         if imports.any?
@@ -66,20 +58,12 @@ module Pinspec
         )
       end
 
-      # What the probe's timezone will actually be: the sandbox forces one, and
-      # `--app-env TZ=...` can override it. The plan has to record the effective
-      # value, because the emitted spec's clock guard is generated from it and the
-      # verifier runs against it.
       def probe_tz
         @sandbox_env["TZ"] || Sandbox::FORCED_ENV.fetch("TZ")
       end
 
       private
 
-      # Reads real rows through a generated read-only script in the app's own
-      # runtime, then hydrates them at plan time. The probe never opens this
-      # connection, which is what lets it point at development while the probe runs
-      # under RAILS_ENV=test.
       def sample_imports(plan, app_profile, target_profile)
         tables = plan.record_steps.map { |step| app_profile.schema.table(table_of(step, app_profile)) }
                      .compact.map(&:name).uniq
@@ -110,8 +94,6 @@ module Pinspec
           Setup::DependencyResolver.new(app_profile.schema, app_profile.factories).table_for(model.to_s.capitalize)&.name
       end
 
-      # The ubiquitous `case status` service object is the single highest-coverage
-      # win available, so a status-like column is stratified when one exists.
       def status_column_for(table)
         return nil if table.nil?
 

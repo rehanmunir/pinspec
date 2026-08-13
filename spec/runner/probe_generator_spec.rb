@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-# M-07's generator, tested without booting anything. The integration spec runs the
-# result for real; these examples guard the properties that make running generated
-# code inside someone else's application defensible in the first place.
 RSpec.describe Pinspec::Runner::ProbeGenerator do
   def parts(app = "rails71_basic", service = "invoice_calculator.rb", method = "call")
     root    = File.expand_path("../fixtures/apps/#{app}", __dir__)
@@ -20,7 +17,6 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
     described_class.generate(plan: plan, corpus: corpus, fk_map: profile.schema.fk_map, target: target)
   end
 
-  # Comments are not code, and the serializer's own header says "no filter_map".
   let(:code_only) do
     probe.lines.reject { |line| line.strip.start_with?("#") }.join
   end
@@ -29,11 +25,6 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
     it "requires only the standard library and libraries the app already owns" do
       requires = probe.scan(/^\s*require ["']([^"']+)["']/).flatten
 
-      # The contract is "pinspec adds no gem to a client's Gemfile", not "the probe
-      # requires nothing". factory_bot is the app's own gem and is loaded only because
-      # a real app bundles it with `require: false` and requires it from its spec
-      # helper - which `rails runner` never reads, so a plan built on 113 factories
-      # would otherwise report that the app has none.
       app_owned = %w[factory_bot factory_girl]
 
       expect(requires - app_owned).to contain_exactly("json", "active_support/testing/time_helpers")
@@ -60,8 +51,6 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
     end
 
     it "can be read before it is run" do
-      # Nothing is eval'd from a string and nothing is fetched: the whole payload
-      # is inline JSON in the file.
       expect(code_only).not_to match(/\beval\b/)
       expect(code_only).not_to match(/Net::HTTP|open-uri|system\(|`/)
     end
@@ -69,8 +58,6 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
 
   describe "one serializer, two hosts" do
     it "embeds templates/serializer.rb verbatim" do
-      # M-09 writes this same file into the emitted spec. A copy that drifted would
-      # be the bug class section 4c exists to prevent.
       expect(probe).to include(described_class.serializer_source)
     end
 
@@ -109,8 +96,6 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
 
   describe "the SQL filters that would otherwise make everything unstable" do
     it "drops SCHEMA and TRANSACTION notifications" do
-      # Rails logs column introspection once per model per process, so the first
-      # case to touch a model would diverge from every later one.
       expect(probe).to include('%w[SCHEMA TRANSACTION].include?(payload[:name].to_s)')
     end
 
@@ -131,11 +116,7 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
     end
 
     it "clears the sinks after setup and before the target" do
-      # Setup noise must never be attributed to the target: a factory's
-      # after(:create) enqueues too.
       clear = probe.lines.each_index.select { |i| probe.lines[i].strip == "pinspec_clear_sinks" }
-      # The call site, not the definition - `def pinspec_invoke(subject` appears
-      # earlier in the file than either.
       invoke = probe.lines.index do |line|
         line.include?("pinspec_invoke(subject") && !line.strip.start_with?("def ")
       end
@@ -146,14 +127,11 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
     end
 
     it "forwards keyword arguments through one shim" do
-      # Empty-keyword-splat forwarding differs before Ruby 2.7, and open-coding it
-      # at each call site is how that bites.
       expect(probe.scan(/def pinspec_invoke/).size).to eq(1)
     end
   end
 
   describe "the Ruby 2.6 syntax floor" do
-    # The probe runs in the app's Ruby, not pinspec's.
     it "parses on 2.6" do
       ruby26 = File.expand_path("~/.rvm/rubies/ruby-2.6.4/bin/ruby")
       skip "no Ruby 2.6 available to check against" unless File.executable?(ruby26)
@@ -172,7 +150,7 @@ RSpec.describe Pinspec::Runner::ProbeGenerator do
 
     it "avoids syntax Ruby 2.6 cannot parse" do
       expect(code_only).not_to match(/\bfilter_map\b/)
-      expect(code_only).not_to match(/^\s*def \w+\(.*\) = /) # endless method
+      expect(code_only).not_to match(/^\s*def \w+\(.*\) = /)
     end
   end
 end

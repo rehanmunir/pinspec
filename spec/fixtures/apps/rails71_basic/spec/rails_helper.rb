@@ -15,9 +15,6 @@ RSpec.configure do |config|
   config.include FactoryBot::Syntax::Methods
   config.include ActiveSupport::Testing::TimeHelpers
 
-  # Deliberately NOT the app's defaults. A pin captured under the app's own locale
-  # and zone must force them back, or it silently compares values from a different
-  # world - which is the whole point of spec section 4c's locale and zone axes.
   config.before(:each) do
     I18n.locale = :fr
     Time.zone = "Asia/Tokyo"

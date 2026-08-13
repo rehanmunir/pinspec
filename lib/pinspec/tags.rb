@@ -3,18 +3,7 @@
 require "date"
 
 module Pinspec
-  # The serializer-v3 tag vocabulary (spec v0.3 §9), CLI side.
-  #
-  # Every value crossing the JSON boundary is tagged, including the ones JSON
-  # could carry natively. Uniformity is the point: a bare `5` in cases.json would
-  # be ambiguous between an Integer and a decimal that happened to be whole, and
-  # the probe would have to guess. Guessing is what the tags exist to prevent.
-  #
-  # This is one half of §4c's encoding axis. M-07's probe encoder and M-09's
-  # generated spec helper are built from the same vocabulary, from one template -
-  # so the constants here are the contract, not an implementation detail.
   module Tags
-    # Tags that carry a value under "v".
     VALUED = %w[int float str sym decimal date time bin ref seq relation cycle inf].freeze
 
     class << self
@@ -34,14 +23,10 @@ module Pinspec
         end
       end
 
-      # A ref names a record the plan builds. It is never an id: ids come from
-      # sequences, and sequences do not roll back (spec v0.3 §12.12).
       def ref(name)
         { "t" => "ref", "v" => name.to_s }
       end
 
-      # A decimal is a string on the wire, always. Floats cannot represent money
-      # and a Float round-trip would silently change a pinned total.
       def decimal(value)
         { "t" => "decimal", "v" => value.to_s }
       end
@@ -54,8 +39,6 @@ module Pinspec
         tagged?(value) ? value["t"] : nil
       end
 
-      # Round-trips a tagged value back to Ruby. Used by the CLI for reporting and
-      # by the specs; the probe has its own decoder generated from the template.
       def decode(tagged)
         return tagged unless tagged?(tagged)
 
@@ -79,7 +62,6 @@ module Pinspec
         end
       end
 
-      # A short, human-readable rendering for `pinspec plan` output.
       def describe(tagged)
         return tagged.inspect unless tagged?(tagged)
 
@@ -98,8 +80,6 @@ module Pinspec
 
       private
 
-      # JSON cannot carry these, so they get their own tags rather than being
-      # silently coerced to null (spec v0.3 §9).
       def encode_float(value)
         return { "t" => "nan" } if value.nan?
         return { "t" => "inf", "sign" => value.negative? ? -1 : 1 } if value.infinite?
@@ -107,13 +87,6 @@ module Pinspec
         { "t" => "float", "v" => value.round(10) }
       end
 
-      # A binary string would make JSON.generate raise, which crypto and file code
-      # hits constantly.
-      #
-      # pack("m0") rather than Base64: base64 left Ruby's default gems in 3.4, so
-      # `require "base64"` raises on a modern Ruby unless the app happens to bundle
-      # it. pack is core and always there - which matters twice over, because the
-      # probe generated from this vocabulary is stdlib-only by contract.
       def encode_string(value)
         if value.encoding == Encoding::ASCII_8BIT || !value.valid_encoding?
           return { "t" => "bin", "v" => [value].pack("m0"), "enc" => value.encoding.to_s }
@@ -122,8 +95,6 @@ module Pinspec
         { "t" => "str", "v" => value }
       end
 
-      # Insertion order preserved, and keys tagged too: a Hash with symbol keys and
-      # one with string keys are different arguments.
       def encode_hash(value)
         { "t" => "hash", "v" => value.map { |key, element| [encode(key), encode(element)] } }
       end

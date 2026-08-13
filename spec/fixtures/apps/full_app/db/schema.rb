@@ -17,8 +17,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_120000) do
     t.string "full_name", null: false
   end
 
-  # Singularizes to "addresse" before "address", so the implicit foreign-key
-  # column can only be derived by checking which one is a real column.
   create_table "addresses", force: :cascade do |t|
     t.string "line1", null: false
   end
@@ -40,8 +38,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_120000) do
     t.index ["status"], name: "index_orders_on_status", where: "(status <> 'cancelled'::text)"
   end
 
-  # Schema-driven and non-trivial: a required parent, a nullable one that must be
-  # left alone, both temporal kinds, and a length-limited string.
   create_table "contracts", force: :cascade do |t|
     t.references "company", null: false, foreign_key: true
     t.bigint "warehouse_id"
@@ -54,9 +50,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_03_02_120000) do
   create_table "legacy_codes", id: false, primary_key: "code", force: :cascade do |t|
     t.string "code", null: false
     t.string "label"
-    # A polymorphic pair written out by hand, the way pre-references schemas did
-    # it. The stem resolves to a real table, so only the _type sibling says this
-    # is not a plain foreign key.
     t.bigint "company_id"
     t.string "company_type"
   end

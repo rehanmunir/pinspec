@@ -2,21 +2,9 @@
 
 module Pinspec
   module Inputs
-    # M-06. Builds the InputCorpus: which arguments pinspec will actually invoke the
-    # target with.
-    #
-    # The allocation is the part worth reading. A `#call` target keeps its
-    # dependencies in the constructor, so constructor parameters usually outnumber
-    # method parameters - and spending a 12-case budget entirely on the constructor
-    # would leave the method's own arguments untested. So: one all-defaults case
-    # first, then one variation per parameter round-robin across the constructor and
-    # the method, until the budget runs out (spec v0.3 §7 M-06).
     class Corpus
       DEFAULT_MAX_CASES = 12
 
-      # Marks an argument pinspec leaves out entirely, so the method's own default
-      # expression runs. That matters: a default can read the clock or a feature
-      # flag, which is exactly what M-01's clock-site detection scans for.
       OMIT = :__pinspec_omit__
 
       class << self
@@ -37,22 +25,15 @@ module Pinspec
         cases = [base_case]
         cases.concat(boundary_cases(@max_cases - cases.size))
 
-        # The cap is already enforced by the budget passed to boundary_cases; dedup
-        # only ever removes.
         InputCorpus.new(cases: dedup(cases), setup_plan: @plan)
       end
 
       private
 
-      # Case one: every parameter at its declared default, every model-typed
-      # parameter at the ref the plan built for it. If a target works at all, it
-      # works here - so a failure in case one is a setup problem, not an edge case.
       def base_case
         build_case("c001", :defaults) { |param| base_value_for(param) }
       end
 
-      # One factor at a time: vary a single parameter, hold everything else at its
-      # base value. Anything that changes is attributable to that parameter.
       def boundary_cases(budget)
         return [] if budget <= 0
 
@@ -65,7 +46,6 @@ module Pinspec
         end
       end
 
-      # Interleaved rather than concatenated, so the budget reaches both lists.
       def round_robin(first, second)
         interleaved = []
         [first.size, second.size].max.times do |index|
@@ -84,8 +64,6 @@ module Pinspec
         variations_for(@target.params)
       end
 
-      # Model-typed parameters are excluded: their value is the plan's ref, and
-      # varying a ref would mean varying the world rather than the input.
       def variations_for(params)
         params.flat_map do |param|
           next [] if bound?(param)
@@ -95,8 +73,6 @@ module Pinspec
           values = Boundary.values_for(param, column: column_for(param))
                            .reject { |value| value == base }
 
-          # Leaving an optional argument out is its own boundary: it runs the
-          # default expression rather than a value pinspec chose.
           values += [OMIT] if Boundary.omittable?(param)
 
           values.map { |value| [param, value] }
@@ -117,9 +93,6 @@ module Pinspec
         )
       end
 
-      # Positional and keyword arguments are separated here rather than at the call
-      # site, because the probe forwards them through one version-guarded shim and
-      # cannot re-derive which was which (spec v0.3 §6).
       def split_params(params)
         positional = []
         keyword    = {}
@@ -138,7 +111,6 @@ module Pinspec
         [positional, keyword]
       end
 
-      # A model-typed parameter is always the record the plan built for it.
       def base_value_for(param)
         ref = @plan.binding_for(param.name)
         return Tags.ref(ref) if ref
@@ -146,9 +118,6 @@ module Pinspec
         Boundary.base_value(param, column: column_for(param))
       end
 
-      # A parameter named `region` when the schema has a `region` column is almost
-      # certainly that column. Only an unambiguous type counts: if two tables
-      # disagree about what `status` is, the schema is not telling us anything.
       def column_for(param)
         return nil if @schema.nil?
 
@@ -163,10 +132,6 @@ module Pinspec
         !@plan.binding_for(param.name).nil?
       end
 
-      # Boundary cases cannot currently collide - each varies a different parameter,
-      # and per-parameter values are already uniq'd against the base. This becomes
-      # load-bearing when sampled cases land, since a real row can reproduce a
-      # boundary value exactly.
       def dedup(cases)
         seen = {}
 

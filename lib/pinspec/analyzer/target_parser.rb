@@ -4,32 +4,13 @@ require "prism"
 
 module Pinspec
   module Analyzer
-    # M-01. Resolves FILE#METHOD to a TargetProfile from a static Prism parse.
-    #
-    # Loads no target-app code and connects to nothing: every answer here comes
-    # from source text. That is what lets `pinspec analyze` run against a repo you
-    # have not booted, and it is why default values are recorded as *source*
-    # rather than as values.
-    #
-    # Target syntax:
-    #   path/to/file.rb#method          resolve anywhere in the file
-    #   path/to/file.rb#Klass#method    instance method on Klass
-    #   path/to/file.rb#Klass.method    class method on Klass
-    #
-    # The qualified forms exist to answer AmbiguousTarget; the bare form is the
-    # happy path in spec v0.3 §5.
     class TargetParser
       include Source
 
       MODEL_BASES = ["ApplicationRecord", "ActiveRecord::Base"].freeze
 
-      # Bases whose #initialize we can assume takes nothing. Deliberately tiny:
-      # guessing wrong here produces an ArgumentError inside the probe, which is
-      # a much worse failure than an honest refusal.
       INERT_BASES = %w[Object BasicObject].freeze
 
-      # Process-clock reads. Only the arg-less forms: Time.new(2020, 1, 1) is a
-      # fixed instant, Time.new is now.
       CLOCK_CALLS = {
         "Time"     => %i[now new],
         "Date"     => %i[today],
@@ -38,7 +19,6 @@ module Pinspec
 
       VISIBILITIES = %i[public private protected].freeze
 
-      # Parameter names too generic to be a model guess.
       SCALARISH_NAMES = %w[
         amount total subtotal price cost quantity qty count index number num
         name email phone title body text message description reason code type
@@ -47,8 +27,6 @@ module Pinspec
         date time now today percent rate ratio sum size length label url path
       ].freeze
 
-      # Constant paths that mean "this constructor reaches out for its own
-      # dependencies", i.e. things the probe cannot control by passing arguments.
       DI_PATTERNS = [
         /\ARails\.application\.config\b/,
         /\ARails\.configuration\b/,
@@ -56,8 +34,6 @@ module Pinspec
         /\AContainer\./
       ].freeze
 
-      # Node kinds that open a new method/constant scope. Walks prune at these so
-      # a `yield` or `Time.now` inside a nested class is not attributed outward.
       PRUNE_AT = [
         Prism::DefNode,
         Prism::ClassNode,
@@ -84,7 +60,6 @@ module Pinspec
           new(file_path, method_name).parse
         end
 
-        # "app/services/foo.rb#Klass#call" => ["app/services/foo.rb", "Klass#call"]
         def split_target(target)
           unless target.to_s.include?("#")
             raise ArgumentError,
@@ -120,9 +95,6 @@ module Pinspec
         construction_kind, initializer_params = resolve_construction(scope, mdef)
         init_node = find_initialize(scope.name)
 
-        # Whole def nodes, not just bodies: `def call(at = Time.now)` is a clock
-        # read and `def call(f = Flipper.enabled?(:x))` is a flag reference. A
-        # default that pinspec doesn't override still runs.
         scan = [mdef.node, init_node].compact
 
         TargetProfile.new(
@@ -133,7 +105,7 @@ module Pinspec
           initializer_params:   initializer_params,
           construction_kind:    construction_kind,
           visibility:           mdef.visibility,
-          takes_block:          false, # a profile is never returned with a block target
+          takes_block:          false,
           source_range:         [mdef.node.location.start_line, mdef.node.location.end_line],
           referenced_constants: referenced_constants(scan),
           clock_sites:          clock_sites(scan)
@@ -141,8 +113,6 @@ module Pinspec
       end
 
       private
-
-      # ---------------------------------------------------------------- input --
 
       def parse_descriptor(raw)
         spec = raw.to_s.sub(/\A#/, "")
@@ -176,14 +146,12 @@ module Pinspec
         @program = result.value
       end
 
-      # ---------------------------------------------------------------- index --
-
       def build_index
         @scopes      = {}
         @defs        = []
         @delegations = []
-        @meta_scopes = []   # scopes defining method_missing / respond_to_missing?
-        @overrides   = {}   # [scope_name, method_name] => visibility
+        @meta_scopes = []
+        @overrides   = {}
 
         walk_body(@program.statements, nil)
 
@@ -265,7 +233,6 @@ module Pinspec
         )
       end
 
-      # Bare `private` / `protected` / `public` — a mode switch for what follows.
       def visibility_switch(call)
         return nil unless call.receiver.nil?
         return nil unless VISIBILITIES.include?(call.name)
@@ -280,8 +247,6 @@ module Pinspec
         args = Array(call.arguments&.arguments)
 
         if VISIBILITIES.include?(call.name) && !args.empty?
-          # `private def foo` (the def is the argument, so it is not otherwise
-          # registered) and `private :foo, :bar` (an override applied at the end).
           args.each do |arg|
             case arg
             when Prism::DefNode
@@ -318,8 +283,6 @@ module Pinspec
         value = assoc.value
         value.is_a?(Prism::SymbolNode) ? value.unescaped : value.slice
       end
-
-      # ------------------------------------------------------------ selection --
 
       def select_definition
         candidates = @defs.select { |d| d.name == @descriptor.method_name }
@@ -360,7 +323,6 @@ module Pinspec
         method = @descriptor.method_name
         parts  = ["no method `#{method}` in #{@file_path}"]
 
-        # A delegated method is a redirect, not a dead end (spec v0.3 §11 row 23).
         delegation = @delegations.find { |d| d.method == method }
         if delegation
           parts << "`#{delegation.scope_name}` delegates :#{method} to " \
@@ -380,8 +342,6 @@ module Pinspec
         TargetNotFound.new(parts.join(". "))
       end
 
-      # Only a constant `to:` can be turned into a file guess; a symbol receiver is
-      # whatever `initialize` assigned it, which is a runtime fact.
       def delegation_hint(delegation)
         to = delegation.to.to_s
         return "" if to.empty?
@@ -425,8 +385,6 @@ module Pinspec
               "and pin that, or pin this method's caller."
       end
 
-      # --------------------------------------------------------- construction --
-
       def resolve_construction(scope, mdef)
         return [:class_method, []] if mdef.singleton
         return [:model_instance, []] if model_scope?(scope)
@@ -446,7 +404,6 @@ module Pinspec
         inherited_construction(scope)
       end
 
-      # No local #initialize: resolve one level up, statically, or refuse.
       def inherited_construction(scope)
         sup = scope.superclass_slice
         return [:new, []] if sup.nil? || INERT_BASES.include?(sup)
@@ -505,8 +462,6 @@ module Pinspec
         )
       end
 
-      # Scanned over the initializer *body* only: a DI call in a parameter default
-      # is fine, because the probe passes its own value and the default never runs.
       def find_di_dependency(body)
         found = nil
 
@@ -548,9 +503,6 @@ module Pinspec
         end
       end
 
-      # Interactor's context is a hash, and the keys a class declares interest in
-      # are exactly the ones it delegates. Optional keywords: the API never
-      # requires any of them.
       def interactor_params(scope)
         @delegations
           .select { |d| d.scope_name == scope.name && d.to.to_s == "context" }
@@ -603,7 +555,6 @@ module Pinspec
         end&.node
       end
 
-      # `Base` inside `module Billing` may mean Billing::Base or ::Base.
       def resolve_scope_relative(name, scope)
         nesting = scope.name.split("::")
 
@@ -615,8 +566,6 @@ module Pinspec
 
         @scopes[name]
       end
-
-      # ------------------------------------------------------------ parameters --
 
       def params_of(def_node)
         parameters = def_node.parameters
@@ -636,7 +585,6 @@ module Pinspec
           out << build_param(parameters.rest.name || :args, :rest, nil)
         end
 
-        # Positionals after a splat: `def call(a, *rest, b)` — still required.
         parameters.posts.each do |node|
           out << build_param(param_name(node), :req, nil)
         end
@@ -669,12 +617,6 @@ module Pinspec
         )
       end
 
-      # Deliberately shallow. A wrong guess is harmless — M-05 validates every hint
-      # against the schema and factory index before acting on it — but a guess that
-      # is right most of the time is what lets `plan` work with no configuration.
-      #
-      # The default literal wins over the name: `rounding: :up` is a Symbol no
-      # matter how much the word "rounding" looks like a model.
       def type_hint_for(name, kind, default_source = nil)
         return nil if %i[rest keyrest].include?(kind)
 
@@ -693,9 +635,6 @@ module Pinspec
         camelize(s)
       end
 
-      # Reads the source text of a default, never evaluates it. `nil` tells us
-      # nothing, and a bare constant is ambiguous (a class or a frozen value), so
-      # both fall through to the name heuristic.
       def hint_from_default(source)
         return nil if source.nil?
 
@@ -712,8 +651,6 @@ module Pinspec
         end
       end
 
-      # -------------------------------------------------------- body scanning --
-
       def referenced_constants(nodes)
         found = []
 
@@ -726,8 +663,6 @@ module Pinspec
           end
         end
 
-        # A constant path already covers its own root: keep ActiveRecord::Base,
-        # drop the bare ActiveRecord it contains.
         roots = found.grep(/::/).map { |c| c.split("::").first }
         found.uniq.reject { |c| !c.include?("::") && roots.include?(c) }.sort
       end
@@ -745,8 +680,6 @@ module Pinspec
             allowed = CLOCK_CALLS[receiver.name.to_s]
             next unless allowed&.include?(node.name)
 
-            # Time.new(2020, 1, 1) is a fixed instant; only the arg-less form reads
-            # the clock.
             next if node.arguments && !node.arguments.arguments.empty?
 
             sites << ClockSite.new(
@@ -765,8 +698,6 @@ module Pinspec
         result
       end
 
-      # Walks a method body without crossing into a nested def/class/module: a
-      # `yield` or a `Time.now` in there belongs to that scope, not to ours.
       def walk_within(node, root: true, &block)
         return unless node
         return if !root && PRUNE_AT.any? { |k| node.is_a?(k) }

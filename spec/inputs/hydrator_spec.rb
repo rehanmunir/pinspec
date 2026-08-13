@@ -1,11 +1,5 @@
 # frozen_string_literal: true
 
-# M-06's other half: turning real rows into ImportClusters at plan time.
-#
-# This is the v0.2 -> v0.3 structural fix. v0.1 handed the probe a row id, so the
-# emitted spec pointed at a row that did not exist in the test database and the
-# whole "IDs differ" failure class followed. Nothing here opens a connection,
-# which is precisely why the hard part is testable.
 RSpec.describe Pinspec::Inputs::Hydrator do
   let(:profile) do
     Pinspec::Analyzer::AppProfileReader.read(File.expand_path("../fixtures/apps/full_app", __dir__))
@@ -19,10 +13,6 @@ RSpec.describe Pinspec::Inputs::Hydrator do
       .hydrate(table, rows, all_rows || { table => rows }, target_source: target_source)
   end
 
-  # The model constant an imported row is created with. This had its own camelizing
-  # copy of a question DependencyResolver#model_for already answered, and the copies
-  # had drifted: on the first real application every imported row failed with
-  # `uninitialized constant SpreeOrder`, because the model is `Spree::Order`.
   describe "naming the model for an imported row on an engine-backed app" do
     let(:engine) do
       Pinspec::Analyzer::AppProfileReader.read(File.expand_path("../fixtures/apps/engine_app", __dir__))
@@ -41,18 +31,11 @@ RSpec.describe Pinspec::Inputs::Hydrator do
       expect(clusters.first.model).to eq("Shop::Order")
     end
 
-    # There is no camelizing fallback any more. It produced `SpreeOrder` - a constant
-    # that does not exist - and its only effect on the app that reached it was an error
-    # naming the application instead of the omission. Forgetting the factories is now
-    # an argument error at the call site.
     it "cannot be constructed without the factories it needs to answer" do
       expect { described_class.new(schema: engine.schema, redactor: Pinspec::Inputs::Redactor.new) }
         .to raise_error(ArgumentError, /factories/)
     end
 
-    # Passing nil satisfies the keyword but not the requirement, and the failure would
-    # otherwise surface as `uninitialized constant ShopOrder` deep inside the probe -
-    # an error that names the application instead of the caller's omission.
     it "rejects nil factories as loudly as omitting them" do
       expect do
         described_class.new(schema: engine.schema, redactor: Pinspec::Inputs::Redactor.new, factories: nil)
@@ -97,9 +80,6 @@ RSpec.describe Pinspec::Inputs::Hydrator do
       expect(contract.attrs["company_id"]).to eq("t" => "ref", "v" => "imported_company_1")
     end
 
-    # ContextBuilder mints `company_1` for records it creates, and these names are
-    # embedded in the attrs above. A collision would silently point a foreign key
-    # at the wrong record.
     it "namespaces its refs away from the ones the plan creates" do
       expect(clusters.map(&:name)).to all(start_with("imported_"))
     end
@@ -124,8 +104,6 @@ RSpec.describe Pinspec::Inputs::Hydrator do
 
   describe "a parent outside the sampled rows" do
     it "leaves a nullable one null and says so" do
-      # The contract points at warehouse 99, which was not sampled. warehouse_id is
-      # nullable, so the import nulls it rather than carrying a dangling id.
       contract_rows = [rows["contracts"].first.merge("warehouse_id" => 99)]
       all_rows      = rows.merge("contracts" => contract_rows)
 
@@ -159,8 +137,6 @@ RSpec.describe Pinspec::Inputs::Hydrator do
     it "stops descending at the depth cap" do
       clusters, = hydrate("contracts", rows["contracts"], rows, max_depth: 0)
 
-      # The parent is past the cap, so only the root row is emitted and its
-      # foreign key has no ref to point at.
       expect(clusters.map(&:table)).to eq(["contracts"])
     end
   end
@@ -224,8 +200,6 @@ RSpec.describe Pinspec::Inputs::Redactor do
       expect(redactor.redacts?("api_key")).to be(true)
     end
 
-    # `name` is far too common as a non-personal column - a product name, a status
-    # name - and redacting it would rewrite half of every schema.
     it "leaves a bare `name` alone" do
       expect(redactor.redacts?("name")).to be(false)
     end
@@ -236,9 +210,6 @@ RSpec.describe Pinspec::Inputs::Redactor do
   end
 
   describe "domain and length preservation, which is the whole point" do
-    # v0.2 rewrote to user1@example.test, changing both the domain and the length,
-    # so a target routing on the domain or validating on length observes different
-    # behaviour and the snapshot freezes something that never happens.
     it "keeps an email's domain" do
       expect(rewrite("email", "rehan.munir@acme.co")).to end_with("@acme.co")
       expect(rewrite("email", "rehan.munir@acme.co")).not_to include("rehan")
@@ -299,8 +270,6 @@ end
 
 RSpec.describe Pinspec::Inputs::Sampler do
   describe ".choose_env" do
-    # v0.2 defaulted to the test database, which is empty - silently reducing
-    # pinspec to boundary values while the whole hydration design went unused.
     it "prefers development when it has rows" do
       expect(described_class.choose_env(available: %w[development test],
                                         counts: { "development" => 400, "test" => 0 }))
@@ -381,13 +350,6 @@ RSpec.describe Pinspec::Inputs::Sampler do
       expect(script).to include('"status_column": "status"')
     end
 
-    # The script runs in the app's Ruby, not pinspec's, and CI syntax-checks the
-    # committed snapshot on 2.6. This guards against the snapshot going stale.
-    #
-    # The version stamp is normalised out. What this guard is for is a change to the
-    # generated SYNTAX that nobody re-checked on 2.6; a release bump changes the stamp
-    # and nothing else, and a guard that cried stale on every release would train
-    # whoever saw it to regenerate without looking.
     it "matches the committed snapshot that CI checks on Ruby 2.6" do
       snapshot = File.expand_path("../fixtures/probe/sampler_snapshot.rb", __dir__)
       expected = described_class.script_for([
@@ -401,8 +363,6 @@ RSpec.describe Pinspec::Inputs::Sampler do
                                                    "regenerate spec/fixtures/probe/sampler_snapshot.rb"
     end
 
-    # ...and the stamp itself is still asserted, so "normalised out" does not become
-    # "unversioned".
     it "stamps the version that generated it" do
       expect(script).to include("Generated by pinspec #{Pinspec::VERSION}.")
     end

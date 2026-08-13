@@ -4,8 +4,6 @@ require "active_record/railtie"
 require "active_job/railtie"
 require "action_mailer/railtie"
 
-# What every real Rails app does, and without it a gem's railtie never loads -
-# so factory_bot registers no factories.
 Bundler.require(*Rails.groups)
 
 module Rails71Basic

@@ -2,17 +2,12 @@
 
 require "json"
 
-# The serializer-v3 tag vocabulary (spec v0.3 §9). This is one half of §4c's
-# encoding axis - M-07's probe encoder and M-09's generated spec helper are built
-# from the same vocabulary - so it is a contract, not an implementation detail.
 RSpec.describe Pinspec::Tags do
   def round_trip(value)
     described_class.decode(described_class.encode(value))
   end
 
   describe "everything is tagged" do
-    # A bare 5 in cases.json would be ambiguous between an Integer and a decimal
-    # that happened to be whole, and the probe would have to guess.
     it "tags values JSON could carry natively" do
       expect(described_class.encode(5)).to eq("t" => "int", "v" => 5)
       expect(described_class.encode("hi")).to eq("t" => "str", "v" => "hi")
@@ -40,8 +35,6 @@ RSpec.describe Pinspec::Tags do
       expect(round_trip(-Float::INFINITY)).to eq(-Float::INFINITY)
     end
 
-    # JSON.generate raises on a binary string, which crypto and file code hits
-    # constantly.
     it "base64s a binary string and records its encoding" do
       binary = [0xff, 0x00, 0xfe].pack("C*")
       tagged = described_class.encode(binary)
@@ -59,8 +52,6 @@ RSpec.describe Pinspec::Tags do
   end
 
   describe "decimals" do
-    # A Float cannot represent money, and a Float round trip would silently change
-    # a pinned total.
     it "is a string on the wire, under its own tag" do
       expect(described_class.decimal("19.99")).to eq("t" => "decimal", "v" => "19.99")
       expect(described_class.decode(described_class.decimal("19.99"))).to eq("19.99")
@@ -68,7 +59,6 @@ RSpec.describe Pinspec::Tags do
   end
 
   describe "refs" do
-    # Ids come from sequences, and sequences do not roll back.
     it "names a record the plan builds, never an id" do
       expect(described_class.ref("invoice_1")).to eq("t" => "ref", "v" => "invoice_1")
       expect(described_class.type_of(described_class.ref("x"))).to eq("ref")
@@ -83,7 +73,6 @@ RSpec.describe Pinspec::Tags do
       )
     end
 
-    # A Hash with symbol keys and one with string keys are different arguments.
     it "tags hash keys as well as values, preserving insertion order" do
       tagged = described_class.encode({ b: 1, a: 2 })
 

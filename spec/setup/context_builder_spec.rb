@@ -1,11 +1,5 @@
 # frozen_string_literal: true
 
-# M-05 acceptance, spec v0.3 §7. The plan is what *both* hosts execute, so every
-# example here is really about the same thing: anything the plan fails to say is
-# something the probe and the emitted spec are free to disagree about.
-#
-# Nothing in this file opens a connection or loads app code. A plan is readable
-# before anything runs, which is the whole point of `pinspec plan`.
 RSpec.describe Pinspec::Setup::ContextBuilder do
   def app_root(app)
     File.expand_path("../fixtures/apps/#{app}", __dir__)
@@ -34,7 +28,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     subject(:plan) { build("basic_app", "invoice_calculator.rb") }
 
     it "freezes the clock and seeds randomness before anything is created" do
-      # A created_at written before the clock is frozen is a value nobody can pin.
       expect(step_kinds(plan).first(4)).to eq(%i[freeze_time seed_random set_locale set_zone])
       expect(plan.steps.first.payload[:at]).to eq(Pinspec::PINSPEC_EPOCH)
       expect(plan.steps[1].payload[:seed]).to eq(Pinspec::PINSPEC_SEED)
@@ -60,12 +53,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       expect(plan.env_fingerprint[:rails]).to eq("7.1.3.2")
     end
 
-    # The fingerprint's TZ is the one the PROBE will run under - the sandbox forces
-    # it - not the one this shell happens to have. Reading ENV["TZ"] here broke three
-    # things at once: the guard in the emitted spec demanded a timezone the probe
-    # never used, the verifier ran :isolated under the forced one and reported every
-    # clock-dependent pin as failed, and `plan_id` differed between two people
-    # pinning the same target from different desks.
     it "records the timezone the probe will use, not this shell's" do
       expect(plan.env_fingerprint[:tz]).to eq(Pinspec::Runner::Sandbox::FORCED_ENV.fetch("TZ"))
     end
@@ -84,8 +71,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       original.nil? ? ENV.delete("TZ") : ENV["TZ"] = original
     end
 
-    # An operator who overrides the probe's timezone gets a plan that says so,
-    # because the emitted spec's guard is generated from this value.
     it "follows an explicit override" do
       overridden = Pinspec::Setup::ContextBuilder.build(
         target: Pinspec::Analyzer::TargetParser.parse(
@@ -109,13 +94,10 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
 
       expect(step.payload[:factory]).to eq(:invoice)
       expect(step.payload[:model]).to eq("Invoice")
-      # factory :invoice declares `customer`, so factory_bot builds it. Creating a
-      # customer here too would build a second one the factory never uses.
       expect(plan.record_steps.map { |s| s.payload[:name] }).to eq(["invoice_1"])
     end
 
     it "builds the required belongs_to closure when there is no factory" do
-      # full_app has no factories at all.
       plan = build("full_app", "company_auditor.rb")
       step = record(plan, "company_1")
 
@@ -127,7 +109,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       step = record(build("full_app", "company_auditor.rb"), "company_1")
 
       expect(step.payload[:attrs].keys).to eq(["name"])
-      # id is the primary key; nothing nullable and nothing with a default appears.
       expect(step.payload[:attrs]).not_to have_key("id")
     end
 
@@ -144,7 +125,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     it "leaves nullable associations null, building the smallest world that exists" do
       plan = build("full_app", "contract_reviewer.rb")
 
-      # contracts.warehouse_id is nullable, so no warehouse is invented for it.
       expect(plan.record_steps.map { |s| s.payload[:model] }).not_to include("Warehouse")
       expect(record(plan, "contract_1").payload[:assoc_refs]).not_to have_key("warehouse_id")
     end
@@ -159,7 +139,7 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     it "respects a column's length limit" do
       attrs = record(build("full_app", "contract_reviewer.rb"), "contract_1").payload[:attrs]
 
-      expect(attrs["code"]).to eq("pins") # limit: 4
+      expect(attrs["code"]).to eq("pins")
     end
 
     it "binds each parameter to the ref that satisfies it" do
@@ -167,13 +147,10 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
 
       expect(plan.bindings).to eq(invoice: "invoice_1")
       expect(plan.binding_for(:invoice)).to eq("invoice_1")
-      # tax_rate is a Float: a scalar, and M-06's business.
       expect(plan.bindings).not_to have_key(:tax_rate)
     end
 
     it "gives two parameters of the same model two different records" do
-      # Binding both to one row would build a world where a company merges with
-      # itself.
       plan = build("full_app", "company_merger.rb")
 
       expect(plan.bindings).to eq(source_company: "company_1", target_company: "company_2")
@@ -182,7 +159,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     end
 
     it "resolves a qualified parameter name to its model" do
-      # source_company hints at "SourceCompany"; the table is companies.
       plan = build("full_app", "company_merger.rb")
 
       expect(record(plan, "company_1").payload[:model]).to eq("Company")
@@ -212,8 +188,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     end
 
     it "leaves a non-unique column unsuffixed" do
-      # company_reviewer, not company_merger: a Person is built only for a target that
-      # reads the current user, and `full_name` is the non-unique column being tested.
       with_person = build("full_app", "company_reviewer.rb")
 
       expect(record(with_person, "person_1").payload[:attrs]["full_name"]).to eq("pinspec")
@@ -229,11 +203,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       expect(step.payload[:record_ref]).to eq("company_1")
     end
 
-    # A user is part of the world only when the target could observe one. Building it
-    # unconditionally is not free: on the first real application it meant every
-    # capture ran that app's `:user` factory, which draws FFaker emails its own
-    # validation rejects about a third of the time - so targets that never look at a
-    # user could not be pinned at all, for a reason having nothing to do with them.
     describe "a target that reads the current user" do
       subject(:plan) { build("full_app", "company_reviewer.rb") }
 
@@ -268,8 +237,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
           .to include("transitive callee")
       end
 
-      # user_ref is asked once for authentication and again for paper_trail, so a
-      # missing user table used to be reported twice - which reads as two problems.
       it "reports each note once" do
         kinds = plan.notes.map { |note| note[:kind] }
 
@@ -323,8 +290,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
 
   describe "subject construction (rule 12, row 29)" do
     it "emits the class and how to build it, but not the argument values" do
-      # A plan is per-target; argument values are per-case. Putting them here
-      # would be a category error.
       step = build("basic_app", "invoice_calculator.rb").subject_step
 
       expect(step.payload[:class]).to eq("InvoiceCalculator")
@@ -356,9 +321,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     end
 
     it "differs between generations even when nothing else changes" do
-      # invoice_calculator's factory path has no uniquified attributes, so the
-      # steps are byte-identical across generations and only the generation
-      # distinguishes the two plans.
       one = build("basic_app", "invoice_calculator.rb")
       two = build("basic_app", "invoice_calculator.rb", generation: 2)
 
@@ -378,7 +340,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     end
 
     it "refuses a NOT NULL column whose type it cannot honestly fill" do
-      # The refusal M-02 deferred until a plan needed the table.
       expect { build("full_app", "order_archiver.rb") }
         .to raise_error(Pinspec::UnresolvableSetup) { |error|
           expect(error.reason).to eq(:unknown_column_type)
@@ -444,7 +405,6 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
     end
 
     it "changes the plan_id, because it changes the world" do
-      # Same target, same app, same generation - only the steps differ.
       expect(build("full_app", "company_auditor.rb", "call", imports: [cluster]).plan_id)
         .not_to eq(build("full_app", "company_auditor.rb").plan_id)
     end

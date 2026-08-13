@@ -5,28 +5,17 @@ require "yaml"
 
 module Pinspec
   module Analyzer
-    # M-04. Builds an AppProfile: gem truth from Gemfile.lock, test-harness
-    # configuration from the helper files, and per-model hazards from app/models.
-    # Aggregates M-02 and M-03 so `analyze` is one call.
-    #
-    # Named FooReader rather than AppProfile because Pinspec::AppProfile is the
-    # value object: inside `module Analyzer`, a bare `AppProfile` would resolve to
-    # this class instead, which is a trap worth spending a filename to avoid.
-    # (Spec §8 names the file app_profile.rb.)
     class AppProfileReader
       include Source
 
       RAILS_FLOOR = "6.0"
 
-      # Named in the refusal, because "unsupported" without "why" is unactionable.
       FLOOR_APIS = [
         "insert_all - importing a sampled row without firing validations or callbacks",
         "connects_to - detecting a second writing database",
         "ActiveSupport::CurrentAttributes#reset_all - clearing state between cases"
       ].freeze
 
-      # Files that configure the test harness. spec/support is included because
-      # DatabaseCleaner configuration lives there more often than in rails_helper.
       HELPER_PATHS = [
         "spec/rails_helper.rb",
         "spec/spec_helper.rb",
@@ -37,8 +26,6 @@ module Pinspec
 
       MODEL_GLOB = "app/models/**/*.rb"
 
-      # Macro name => what it means to pinspec. after_create_commit and
-      # after_save_commit are the same hazard as after_commit.
       MODEL_MACROS = {
         after_commit:         :after_commit,
         after_create_commit:  :after_commit,
@@ -59,8 +46,6 @@ module Pinspec
       CURRENT_ATTRIBUTES_BASE = "ActiveSupport::CurrentAttributes"
 
       class << self
-        # Raises UnsupportedRailsVersion (exit 10) below the Rails floor: the
-        # refusal belongs at analyze time, not at the first insert_all.
         def read(app_root = ".", enforce_floor: true)
           new(app_root).read(enforce_floor: enforce_floor)
         end
@@ -79,8 +64,6 @@ module Pinspec
         rails_version = version_of(gems, "rails") || version_of(gems, "activerecord")
         floor_ok      = floor_ok?(rails_version)
 
-        # Checked before the schema is read, so an app below the floor hears about
-        # the floor rather than about its schema format.
         enforce_floor!(rails_version) if enforce_floor && floor_ok == false
 
         AppProfile.new(
@@ -111,8 +94,6 @@ module Pinspec
 
       private
 
-      # ----------------------------------------------------------------- gems --
-
       def read_gemfile_lock
         path = File.join(@root, "Gemfile.lock")
 
@@ -125,12 +106,7 @@ module Pinspec
 
         gems = {}
 
-        # Source.read, not File.foreach: a lock is someone else's file and `foreach`
-        # tags each line with the locale's encoding, which is the crash this project
-        # already fixed once for source files.
         Source.read(path).each_line do |line|
-          # Resolved specs sit at exactly four spaces; their dependencies at six,
-          # and DEPENDENCIES entries at two, so the indent does the disambiguating.
           if (spec = line.match(/^ {4}([a-zA-Z0-9._-]+) \(([^)]+)\)$/))
             gems[spec[1]] = spec[2]
           elsif (ruby = line.match(/^ {3}ruby ([\d.]+)/))
@@ -142,9 +118,6 @@ module Pinspec
         gems
       end
 
-      # A lock does not always carry a RUBY VERSION section - Open Food Network's does
-      # not - and "unknown" in a client-facing report header is a worse answer than the
-      # one sitting in `.ruby-version`, which is where the app states it.
       def ruby_version_file
         path = File.join(@root, ".ruby-version")
         return nil unless File.file?(path)
@@ -156,12 +129,6 @@ module Pinspec
         gems.key?(name) || gems.keys.any? { |key| key == "#{name}-rails" || key.start_with?("#{name}-") }
       end
 
-      # Taken verbatim, deliberately. Trimming this to digits and dots turns a
-      # prerelease like "7.2.0.beta1" - which anyone tracking edge Rails has -
-      # into "7.2.0.", a string Gem::Version rejects. Platform suffixes
-      # ("1.16.2-arm64-darwin") only appear on native gems, never on rails or
-      # activerecord, so there is nothing here worth stripping. floor_ok? handles
-      # whatever a corrupt lock produces.
       def version_of(gems, name)
         gems[name]
       end
@@ -171,7 +138,6 @@ module Pinspec
 
         Gem::Version.new(rails_version) >= Gem::Version.new(RAILS_FLOOR)
       rescue ArgumentError
-        # A hand-edited or corrupt lock must not crash a report.
         note(:unparseable_rails_version,
              "could not read #{rails_version.inspect} as a version, so the Rails " \
              "#{RAILS_FLOOR} floor was not checked")
@@ -212,7 +178,6 @@ module Pinspec
         :none
       end
 
-      # ActiveStorage is part of Rails, so its evidence is usage rather than a gem.
       def attachments_for(gems)
         found = []
         found << :active_storage if @findings.any? { |f| f.kind == :active_storage } || active_storage_configured?
@@ -242,8 +207,6 @@ module Pinspec
         :none
       end
 
-      # --------------------------------------------------------------- config --
-
       def detect_locale
         found = config_sources.filter_map { |source| source[/config\.i18n\.default_locale\s*=\s*:(\w+)/, 1] }.last
         (found || "en").to_sym
@@ -253,8 +216,6 @@ module Pinspec
         config_sources.filter_map { |source| source[/config\.time_zone\s*=\s*["']([^"']+)["']/, 1] }.last || "UTC"
       end
 
-      # application.rb first, then environments/test.rb: the probe runs under
-      # RAILS_ENV=test, so a test-environment override is the one that applies.
       def config_sources
         @config_sources ||= ["config/application.rb", "config/environments/test.rb"]
                             .map { |relative| File.join(@root, relative) }
@@ -279,8 +240,6 @@ module Pinspec
         return :none if strategies.empty?
 
         if strategies.size > 1
-          # Common shape: :transaction by default, :truncation for js: true specs.
-          # The default is what decides whether examples are wrapped.
           note(:multiple_db_cleaner_strategies,
                "rails_helper sets more than one DatabaseCleaner strategy " \
                "(#{strategies.join(', ')}); pinspec assumes the first is the default")
@@ -295,7 +254,7 @@ module Pinspec
           return match == "true" unless match.nil?
         end
 
-        nil # unset, which in Rails means true
+        nil
       end
 
       def detect_queue_adapter
@@ -307,8 +266,6 @@ module Pinspec
         nil
       end
 
-      # `connects_to` in a model is the strongest signal; database.yml is parsed
-      # only as a fallback because it is usually full of ERB.
       def multi_db?
         return true if @findings.any? { |f| f.kind == :connects_to }
 
@@ -338,8 +295,6 @@ module Pinspec
         nested.reject { |config| config["replica"] }.size > 1
       end
 
-      # --------------------------------------------------------------- models --
-
       def scan_models
         Dir[File.join(@root, MODEL_GLOB)].sort.each do |path|
           result = Prism.parse(Source.read(path))
@@ -367,8 +322,6 @@ module Pinspec
         end
       end
 
-      # Class-body calls only: a macro nested inside a method definition is not a
-      # declaration, and `class << self` bodies hold methods, not macros.
       def scan_macros(body, model, path)
         Array(body&.body).grep(Prism::CallNode).each do |call|
           if call.name == :include

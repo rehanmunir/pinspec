@@ -4,13 +4,6 @@ require "fileutils"
 
 module Pinspec
   module Report
-    # M-12. The client-facing audit artifact: what was pinned, what was refused,
-    # what was rewritten, and every place pinspec's answer is narrower than the
-    # truth.
-    #
-    # Written as markdown because it gets pasted into a document someone signs off,
-    # and organised so the caveats are impossible to skip rather than buried at the
-    # end.
     class Summary
       OUTPUT = "tmp/pinspec/report.md"
 
@@ -99,9 +92,6 @@ module Pinspec
         MD
       end
 
-      # An omitted section reads as "nothing to say"; for verification that would be
-      # a lie of omission, since a report written by `validate` has scores and no
-      # verification at all. Say which it is.
       def not_verified
         <<~MD
 
@@ -248,7 +238,7 @@ module Pinspec
 
         "The target reads the process clock at #{sites}. `Time.zone` does not govern " \
           "those, so these pins hold only under `TZ=#{@plan&.env_fingerprint&.dig(:tz)}`. " \
-          "The emitted spec guards this rather than letting it pass by luck."
+          "The emitted spec guards this rather than letting it pass for the wrong reason."
       end
 
       def redactions

@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-# M-03 acceptance, spec v0.3 §7. The load-bearing property is that nothing here
-# executes a factory: a factory body is arbitrary Ruby against the app's models,
-# so every value is recorded as source text and inheritance is resolved from
-# structure alone.
 RSpec.describe Pinspec::Analyzer::FactoryRegistry do
   def index(app)
     described_class.read(File.expand_path("../fixtures/apps/#{app}", __dir__))
@@ -38,14 +34,11 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
     end
 
     it "gives a nested factory its parent's class, not its own name" do
-      # factory :paid_invoice inside factory :invoice is still an Invoice.
       expect(idx.factory(:paid_invoice).model).to eq("Invoice")
       expect(idx.factory(:premium_customer).model).to eq("Billing::Customer")
     end
 
     it "inherits a class through parent: even when the factory is not nested" do
-      # The parent may be declared in a later file, so this can only be resolved
-      # once the whole index exists.
       expect(idx.factory(:discounted_invoice).parent).to eq(:invoice)
       expect(idx.factory(:discounted_invoice).model).to eq("Invoice")
     end
@@ -87,7 +80,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
 
         expect(product.kind).to eq(:association)
         expect(product.factory).to eq(:premium_product)
-        # The positional argument is the attribute's own name, not a value.
         expect(product.source).to be_nil
       end
 
@@ -111,8 +103,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
     end
 
     describe "traits, in declared order" do
-      # M-05's remedy for a validation failure is to retry traits in declared
-      # order, so the order is part of the contract, not incidental.
       it "keeps traits in the order written" do
         expect(idx.factory(:invoice).traits.map(&:name)).to eq(%i[paid overdue])
       end
@@ -139,8 +129,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
         expect(idx.factory(:invoice).attribute(:after)).to be_nil
       end
 
-      # before/after photos are a real domain, and they collide with the callback
-      # DSL. `after(:create)` is a callback; `after { ... }` is a column.
       it "does not mistake an attribute named before or after for a callback" do
         comparison = idx.factory(:comparison)
 
@@ -201,9 +189,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
         expect(idx.attributes_for(:paid_invoice, traits: [:overdue]).map(&:name)).to include(:due_on)
       end
 
-      # A hang is the worst failure mode a CLI has, and static parsing cannot
-      # assume the input is loadable: factory_bot would reject this file, pinspec
-      # only reads it.
       it "terminates on mutually parented factories instead of looping forever" do
         cyclic = index("cyclic_app")
 
@@ -260,8 +245,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
       expect(idx.skipped.map { |s| s[:kind] }).to include(:no_factories)
     end
 
-    # Silence here would be the real bug: M-05 would conclude the factory does
-    # not exist and build a schema-driven record instead, with no explanation.
     it "never silently returns a shorter list" do
       expect(idx.factories).to be_empty
       expect(idx.skipped.size).to eq(2)

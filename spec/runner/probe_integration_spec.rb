@@ -1,21 +1,8 @@
 # frozen_string_literal: true
 
-# M3's definition of done, run for real: the probe executes inside a booting Rails
-# application against a live PostgreSQL database, and the row-30 target - a
-# zero-argument #call that returns a record it just created - comes out identical
-# across two separate boots.
-#
-# Skipped rather than failed when the fixture app has not been prepared, so the
-# suite stays green on a machine without Postgres. Prepare it with:
-#
-#   cd spec/fixtures/apps/rails71_basic
-#   bundle install && RAILS_ENV=test bundle exec rails db:schema:load
 RSpec.describe "the probe, inside a real Rails application" do
   APP_ROOT = File.expand_path("../fixtures/apps/rails71_basic", __dir__)
 
-  # The fixture runs on a different Ruby than pinspec's CLI, which is the whole
-  # point of the two-process design (spec v0.3 §4a). A real user's app is simply
-  # whatever `bundle exec` resolves to.
   def app_env
     gemset = File.expand_path("~/.rvm/gems/ruby-3.3.0")
 
@@ -43,7 +30,6 @@ RSpec.describe "the probe, inside a real Rails application" do
     ).run
   end
 
-  # Tagged nodes of a kind, at any depth.
   def find_tags(value, kind, found = [])
     case value
     when Hash
@@ -72,17 +58,12 @@ RSpec.describe "the probe, inside a real Rails application" do
     let(:result) { capture("invoice_calculator.rb") }
 
     it "is stable across two separate boots" do
-      # Two boots rather than one shuffled process: run two would otherwise inherit
-      # run one's warm caches, and an input-keyed memo would agree with itself.
       expect(result.stability.runs).to eq(2)
       expect(result.stability.unstable).to be_empty
       expect(result.stability.stable.size).to eq(result.corpus.size)
     end
 
     it "pins the foreign key as a ref, never as an id" do
-      # This is the failure class v0.2 shipped with: sequences are not
-      # transactional, so a rolled-back case still advances them and a pinned id
-      # differs on the next run.
       value = result.stability.stable.first.observation["return_value"]
 
       expect(value["t"]).to eq("record")
@@ -111,18 +92,14 @@ RSpec.describe "the probe, inside a real Rails application" do
       expect(jobs.map { |job| job["job"] }).to include("SyncJob")
       expect(jobs.find { |job| job["job"] == "SyncJob" }["queue"]).to eq("sync")
 
-      # perform_later(invoice.id) - a bare id that would churn every run.
       args = jobs.find { |job| job["job"] == "SyncJob" }["args"]["v"]
       expect(args.first).to eq("t" => "ref", "v" => "__returned__")
     end
 
     it "refuses to pin the id inside a GlobalID, keeping the model name" do
-      # deliver_later carries the record as gid://app/Invoice/22, hiding the id in
-      # a String where an integer index cannot see it.
       mailer = result.stability.stable.first.observation["enqueued_jobs"]
                      .find { |job| job["job"].include?("MailDeliveryJob") }
 
-      # ActiveJob nests it: args -> hash -> "args" -> array -> hash -> _aj_globalid.
       gids = find_tags(mailer["args"], "gid")
 
       expect(gids).not_to be_empty
@@ -135,8 +112,6 @@ RSpec.describe "the probe, inside a real Rails application" do
     end
 
     it "leaves no SCHEMA noise in the fingerprints" do
-      # Column introspection fires once per model per process, so without filtering
-      # the first case to touch a model diverges from every later one.
       fingerprints = result.runs.first.observations.flat_map { |o| o["sql_fingerprints"] }
 
       expect(fingerprints).to all(match(/\A(SELECT|INSERT|UPDATE|DELETE)/i))
@@ -162,8 +137,6 @@ RSpec.describe "the probe, inside a real Rails application" do
     end
   end
 
-  # Spec v0.3 §12.2. The safety claim is that a capture is reversible; a claim like
-  # that is worth a test rather than a paragraph.
   describe "the rollback guarantee" do
     it "leaves every table with the row count it started with" do
       before_counts = table_counts

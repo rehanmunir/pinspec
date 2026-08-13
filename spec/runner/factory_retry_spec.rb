@@ -1,13 +1,8 @@
 # frozen_string_literal: true
 
-# The template both hosts share. Loaded here as plain Ruby - it is held to a Ruby 2.6
-# syntax floor because it runs in the target app's Ruby, so it cannot use anything
-# pinspec's own code may.
 require Pinspec::Runner::ProbeGenerator::FACTORY_TEMPLATE
 
 RSpec.describe PinspecFactory do
-  # Stands in for FactoryBot: fails a given number of times with the error a random
-  # attribute produces, then succeeds. Nothing else about factory_bot matters here.
   class FlakyFactory
     attr_reader :calls
 
@@ -24,8 +19,6 @@ RSpec.describe PinspecFactory do
     end
   end
 
-  # A stand-in for the error class, since ActiveRecord is not loaded in pinspec's own
-  # suite. The template checks for it by name through `defined?`.
   module ActiveRecord
     class RecordInvalid < StandardError; end
     class RecordNotUnique < StandardError; end
@@ -33,11 +26,6 @@ RSpec.describe PinspecFactory do
 
   before { described_class.reset_attempts! }
 
-  # Why this exists at all: Open Food Network's `:user` factory draws an email from
-  # FFaker and roughly one in three is rejected by the app's own validation. Its suite
-  # tolerates that because each run draws different values. pinspec pins srand(42), so
-  # "usually passes" became "always fails" - the first two attempts raised and the
-  # third succeeded, every single run.
   it "retries a factory that fails on a random attribute" do
     factory = FlakyFactory.new(2)
 
@@ -61,9 +49,6 @@ RSpec.describe PinspecFactory do
     expect(described_class.fragile).to be_empty
   end
 
-  # The reason retrying does not cost determinism, which is what makes it sound: both
-  # hosts start from the same seed, run the same loop, consume the same random values,
-  # fail on the same attempts, and end up with the same record.
   it "is replayable, because the loop is a pure function of the seed" do
     probe_host = described_class.create(:order, {}, FlakyFactory.new(2))
     described_class.reset_attempts!
@@ -72,8 +57,6 @@ RSpec.describe PinspecFactory do
     expect(spec_host).to eq(probe_host)
   end
 
-  # A factory that is broken rather than unlucky must produce its own error, not a
-  # timeout and not a retry loop that hides the message.
   it "gives up and re-raises after a bounded number of attempts" do
     expect { described_class.create(:order, {}, FlakyFactory.new(99)) }
       .to raise_error(ActiveRecord::RecordInvalid, /Email is invalid/)
@@ -102,7 +85,6 @@ RSpec.describe PinspecFactory do
   end
 
   it "omits the attributes argument entirely when there are none" do
-    # A factory whose `create` takes only a name must still work.
     strict = Class.new do
       def create(name) = { name: name }
     end.new

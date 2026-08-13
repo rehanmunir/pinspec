@@ -6,14 +6,6 @@ require "open3"
 
 module Pinspec
   module Inputs
-    # Executes the generated sampler inside the target app and returns the rows it
-    # read.
-    #
-    # Separate from the probe on purpose (spec v0.3 §4b): this reads, the probe
-    # writes, and they run in different processes against possibly different
-    # databases. The sampler can point at `development` while the probe runs under
-    # `RAILS_ENV=test`, which is exactly what makes plan-time hydration safe - the
-    # probe never opens the sample connection.
     class SampleRunner
       SCRIPT_PATH = "tmp/pinspec/sampler.rb"
 
@@ -26,8 +18,6 @@ module Pinspec
           total_rows.zero?
         end
 
-        # Rows for hydration: the sampled slice plus the status-stratified slice,
-        # deduplicated by primary key.
         def rows_for(table)
           seen = {}
 
@@ -79,7 +69,6 @@ module Pinspec
         ["bundle", "exec", "rails", "runner", SCRIPT_PATH]
       end
 
-      # Same scrub as the probe: pinspec's own Gemfile must not follow it in.
       def environment
         Runner::Sandbox::SCRUBBED_ENV
           .merge("RAILS_ENV" => @rails_env, "DISABLE_SPRING" => "1", "TZ" => "UTC")

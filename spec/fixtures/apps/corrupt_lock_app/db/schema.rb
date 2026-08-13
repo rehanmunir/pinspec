@@ -1,6 +1,3 @@
-# This file is auto-generated from the current state of the database. Instead
-# of editing this file, please use the migrations feature of Active Record to
-# incrementally modify your database, and then regenerate this schema definition.
 
 ActiveRecord::Schema[7.1].define(version: 2026_02_11_094500) do
   enable_extension "plpgsql"
@@ -43,8 +40,6 @@ ActiveRecord::Schema[7.1].define(version: 2026_02_11_094500) do
 
   create_table "reports", force: :cascade do |t|
     t.string "title", null: false
-    # invoices.number is a string; this one is an integer. A parameter named
-    # `number` therefore has no unambiguous type in this schema.
     t.integer "number"
   end
 

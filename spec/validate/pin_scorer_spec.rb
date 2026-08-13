@@ -4,11 +4,6 @@ require "fileutils"
 require "json"
 require "tmpdir"
 
-# M-11. The claim being tested is the one that justifies per-aspect scoring at all:
-# aspects are blind to DIFFERENT mutations, so a single number over a whole pin
-# hides both what it caught and what it missed. The spike measured this on a real
-# service - a return-only run slept through a deleted `perform_later` that the
-# job-only run killed - and these examples hold that reading in place.
 RSpec.describe Pinspec::Validate::PinScorer do
   let(:app_dir) { Dir.mktmpdir }
   let(:bin_dir) { File.join(app_dir, "bin") }
@@ -44,8 +39,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
   end
 
   describe "which aspects it grades" do
-    # A pin that asserts nothing about mail cannot be scored on mail: the run would
-    # find no mutation that touches it and report a vacuous 100%.
     it "grades only the aspects the pin actually asserts" do
       report = stability(returned("enqueued_jobs" => [{ "job" => "SyncJob" }]))
 
@@ -77,9 +70,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
       expect(plain.send(:verdict_for, :jobs, 12.0)).to eq(:worthless)
     end
 
-    # The trap a bare score sets. A pin whose value is `{"t":"seq"}` asserts "some
-    # integer" - it would survive almost any mutation of that value - so a high score
-    # measures the mutations it DID catch and says nothing about the wildcard.
     it "refuses to call a wildcarded value strong, however well it scores" do
       wildcarded = scorer(stability(returned("return_value" => { "t" => "seq" })))
 
@@ -93,8 +83,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
       expect(truncated.send(:verdict_for, :return, 100.0)).to eq(:weak)
     end
 
-    # A wildcard in the return value does not weaken the job assertion, which is a
-    # different claim about a different thing.
     it "does not let a wildcarded return value taint the job aspect" do
       wildcarded = scorer(stability(returned("return_value" => { "t" => "seq" })))
 
@@ -109,8 +97,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
         .to eq("bundle exec rspec %{files}")
     end
 
-    # The spike's finding: the backend scrubs inherited Ruby pins, so a legacy app on
-    # its own rvm gemset has to re-establish its runtime inside the command.
     it "exports the app's runtime itself, because the backend scrubs what it inherits" do
       command = scorer(stability(returned), env: { "GEM_HOME" => "/gems/2.6" }, test_command: nil)
                 .send(:generate_wrapper)
@@ -125,8 +111,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
   end
 
   describe "scoring a whole pin, aspect by aspect" do
-    # Two aspects, each blind to what the other catches - the spike's actual reading,
-    # reproduced here so the Report arithmetic is exercised on real shapes.
     ARITHMETIC = { "operator" => "arithmetic", "line" => 12, "token" => "*" }.freeze
     DELETED_JOB = { "operator" => "method_call", "line" => 20, "token" => "perform_later" }.freeze
 
@@ -181,9 +165,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
       expect(complementary.subject).to eq("InvoiceCalculator#call")
     end
 
-    # The finding. Neither aspect is strong alone, and yet nothing got through the
-    # pin - which is the argument for pinning all four aspects instead of the return
-    # value everyone reaches for first.
     it "reports no real gap when every survivor was killed by some other aspect" do
       expect(complementary.surviving_all_aspects).to be_empty
       expect(complementary.covered_by_another_aspect.map { |s| s["token"] })
@@ -208,8 +189,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
       expect(strong_and_weak.strong_ratio).to eq(50.0)
     end
 
-    # An aspect the backend could not score must not be averaged in as a zero, and
-    # must not silently vanish either.
     it "keeps an unscored aspect visible without letting it skew the ratio" do
       partial = run_with({ return: report_for(100.0, []) }, pinned)
 
@@ -220,8 +199,6 @@ RSpec.describe Pinspec::Validate::PinScorer do
     end
 
     it "refuses to guess a gap when an aspect returned no survivor list" do
-      # An empty survivor set means "nothing survived", so the intersection is empty
-      # by definition - not "every other aspect's survivors are gaps".
       clean = run_with({ return: report_for(100.0, []), jobs: report_for(50.0, [ARITHMETIC]) }, pinned)
 
       expect(clean.surviving_all_aspects).to be_empty

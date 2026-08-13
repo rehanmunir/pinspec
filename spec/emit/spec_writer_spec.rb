@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-# M-09 acceptance, spec v0.3 §7. The emitted spec has to control the same six axes
-# the probe controlled, by the same rules - so most of these examples are about the
-# spec host *forcing* the capture's answer rather than inheriting the suite's.
 RSpec.describe Pinspec::Emit::SpecWriter do
   APP = File.expand_path("../fixtures/apps/rails71_basic", __dir__)
 
@@ -67,7 +64,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
     end
 
     it "says a failure means changed behaviour, not wrong behaviour" do
-      # Bugs get pinned on purpose.
       expect(source).to include("freezes what the code does TODAY")
       expect(source).to include("Bugs get pinned on")
     end
@@ -94,8 +90,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
 
   describe "the axes it forces rather than inherits" do
     it "forces the capture's isolation regime" do
-      # A suite that truncates instead of transacting would fire after_commit
-      # callbacks the probe never saw.
       expect(source).to include("ActiveRecord::Base.transaction(requires_new: true)")
       expect(source).to include("raise ActiveRecord::Rollback")
       expect(source).to include("Forced regardless of this suite's own strategy")
@@ -110,14 +104,10 @@ RSpec.describe Pinspec::Emit::SpecWriter do
     end
 
     it "clears the sinks per example" do
-      # ActionMailer::Base.deliveries is not cleared for you: example two would
-      # otherwise count example one's mail.
       expect(source).to include("pinspec_clear_sinks")
     end
 
     it "tags examples so the support file can force the :test queue adapter" do
-      # A suite whose own adapter is :inline executes jobs instead of enqueuing
-      # them, and every job pin would see nothing.
       expect(source).to include(":pinspec do")
     end
   end
@@ -128,7 +118,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
     end
 
     it "is emitted, with a warning, when the target does read it" do
-      # Guarding every pin would mean no pin survives a different timezone.
       clock_app = File.expand_path("../fixtures/apps/full_app", __dir__)
       skip "clock fixture unavailable" unless File.directory?(clock_app)
 
@@ -146,9 +135,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
       expect(source).to include("fk_map: pinspec_fk_map")
     end
 
-    # The probe serializes the return value BEFORE registering the returned
-    # record, so the spec host has to as well or the record gains a "ref" key in
-    # one host and not the other.
     it "normalizes the return value without the returned record in the refs" do
       expect(source).to include("normalize(pinned, refs: pinspec_refs(pinspec_records), fk_map:")
     end
@@ -162,9 +148,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
 
   describe "records and refs" do
     it "renders the plan's records as let!, with the calls a human would write" do
-      # Not a bare `create(:customer)`: the spec host has to replay the probe's
-      # deterministic factory retry, or it consumes different random values from a
-      # non-deterministic factory and builds a different record.
       expect(source).to include("let!(:customer_1) { PinspecFactory.create(:customer) }")
     end
 
@@ -177,13 +160,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
     end
   end
 
-  # The DoD's grep, and the property the whole identity design exists for.
-  # An emitted pin is a COMMITTED file. Ruby 3.4 changed `Hash#inspect` to put
-  # spaces around the rocket, so delegating to it made the file's bytes depend on
-  # which Ruby pinspec ran on - two colleagues pinning the same target got a diff on
-  # every line, and a Ruby upgrade rewrote every pin in the repository. For a tool
-  # whose promise is "re-run and nothing changes unless the behaviour changed", that
-  # is the promise breaking.
   describe "a literal that does not depend on pinspec's own Ruby" do
     subject(:writer) do
       described_class.new(app_root: "/tmp/app", target: nil, plan: nil, corpus: nil,
@@ -212,8 +188,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
       expect(literal([])).to eq("[]")
     end
 
-    # The property, stated as a property: no rocket without spaces anywhere in a
-    # rendered snapshot, on any Ruby.
     it "never emits the pre-3.4 spelling" do
       rendered = literal({ "t" => "hash", "v" => [[{ "t" => "sym", "v" => "k" }, { "t" => "int", "v" => 1 }]] })
 
@@ -237,7 +211,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
 
   describe "naming, without an LLM" do
     it "describes each case deterministically" do
-      # M-10 may improve the prose later; it can never touch a value.
       expect(source).to match(/describe "call returns the pinned Invoice it creates \(c00\d, \w+\)"/)
     end
 
@@ -289,9 +262,6 @@ RSpec.describe Pinspec::Emit::SpecWriter do
         .to contain_exactly("pinspec_serializer.rb", "pinspec_support.rb", "pinspec_factory.rb")
     end
 
-    # All three come from templates/ that the probe embeds too. That is the whole of
-    # "one contract, two hosts": a copy written by hand here would be a second chance
-    # for the two hosts to disagree.
     it "writes them from the same templates the probe embeds" do
       _writer, result = write
 

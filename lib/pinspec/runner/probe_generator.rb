@@ -4,17 +4,6 @@ require "json"
 
 module Pinspec
   module Runner
-    # M-07. Generates the probe: a stdlib-only Ruby script, held to a 2.6 syntax
-    # floor, that executes the SetupPlan and the InputCorpus inside the target app
-    # and prints observations as JSON.
-    #
-    # It is generated rather than shipped so that it can be read before it is run
-    # (`--dry-run`), and stdlib-only so that pinspec adds nothing to a client's
-    # Gemfile - the two things that make running someone else's code inside their
-    # app defensible.
-    #
-    # The serializer is embedded verbatim from templates/serializer.rb, the same
-    # file M-09 will write into the emitted spec. One source, two hosts (§4c).
     class ProbeGenerator
       SERIALIZER_TEMPLATE = File.expand_path("../../../templates/serializer.rb", __dir__)
       FACTORY_TEMPLATE = File.expand_path("../../../templates/factory_build.rb", __dir__)
@@ -29,8 +18,6 @@ module Pinspec
           File.read(SERIALIZER_TEMPLATE)
         end
 
-        # The deterministic factory retry, shared with the emitted spec for the same
-        # reason the serializer is: both hosts have to build the same world.
         def factory_source
           File.read(FACTORY_TEMPLATE)
         end
@@ -44,8 +31,6 @@ module Pinspec
         @max_collection = max_collection
       end
 
-      # The payload the probe reads. Everything the probe needs is here: it never
-      # opens the sample connection and never re-derives anything the CLI decided.
       def payload
         {
           "pinspec_probe_version" => PROBE_VERSION,
@@ -121,8 +106,6 @@ module Pinspec
         text.to_s
       end
 
-      # The probe body. Kept in one string so the generated file reads top to bottom
-      # the way it executes.
       def runtime
         [
           runtime_environment,
@@ -170,7 +153,6 @@ module Pinspec
 
           # Raised to end a case early without it looking like a failure.
           class PinspecCaseDone < StandardError; end
-
           # The regime the PLAN chose, not the one this file would prefer. It has to
           # be the plan's, because the emitted spec will run under the same one:
           #
@@ -228,7 +210,7 @@ module Pinspec
           # ---------------------------------------------------------------- sinks --
 
           # Cleared after setup and before the target runs, so setup noise is never
-          # attributed to the target (spec v0.3 section 7 M-07).
+          # attributed to the target.
           def pinspec_clear_sinks
             if defined?(ActiveJob::Base) && ActiveJob::Base.queue_adapter.respond_to?(:enqueued_jobs)
               ActiveJob::Base.queue_adapter.enqueued_jobs.clear

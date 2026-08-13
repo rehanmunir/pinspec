@@ -6,36 +6,18 @@ require "open3"
 
 module Pinspec
   module Runner
-    # Executes the generated probe inside the target application.
-    #
-    # Two boots by default (spec v0.3 §7 M-07, reversing v0.2): run two shares one
-    # process's warm caches, so an input-keyed memo filled by run one's first case
-    # is reused by every later case AND by all of run two - both runs agree while
-    # the pinned value is an artifact of which case happened to run first. A boot
-    # costs 10-30s; determinism is goal three.
     class Sandbox
       PROBE_DIR = "tmp/pinspec"
       PROBE_FILE = "probe.rb"
 
       DEFAULT_TIMEOUT = 600
 
-      # Exported unconditionally. A stale Spring preloader serving yesterday's code
-      # is a debugging evening deleted by one line (§12.10), and TZ=UTC removes one
-      # axis of host drift.
       FORCED_ENV = {
         "DISABLE_SPRING" => "1",
         "TZ" => "UTC",
         "RAILS_ENV" => "test"
       }.freeze
 
-      # Removed from the child's environment (nil deletes the variable).
-      #
-      # Without this, running pinspec from inside its own bundle - which is how
-      # anyone would run it, `bundle exec pinspec pin ...` - leaks BUNDLE_GEMFILE
-      # and RUBYOPT="-rbundler/setup" into the target app, so the app resolves
-      # *pinspec's* Gemfile instead of its own and never boots. The failure is
-      # bewildering ("Could not find prism-1.5.1") and has nothing to do with the
-      # app being analysed.
       SCRUBBED_ENV = {
         "BUNDLE_GEMFILE" => nil,
         "BUNDLE_PATH" => nil,
@@ -73,8 +55,6 @@ module Pinspec
         probe_path
       end
 
-      # Two boots, each shuffled with its own seed. Same script, same payload: any
-      # difference between them is the target's, not pinspec's.
       def capture(boots: 2)
         write_probe!
 
@@ -87,8 +67,6 @@ module Pinspec
 
       def execute(run:, seed:)
         command = runner_command
-        # Scrub first, then force, then whatever the caller explicitly asked for:
-        # an explicit GEM_HOME is a deliberate choice and must survive the scrub.
         env = SCRUBBED_ENV
               .merge(FORCED_ENV)
               .merge("PINSPEC_SHUFFLE_SEED" => seed.to_s)
@@ -127,8 +105,6 @@ module Pinspec
         raise ProbeFailure, "the probe's output was not JSON (#{e.message}): #{json.to_s[0, 200]}"
       end
 
-      # `bundle exec rails runner` when the app has a Gemfile, plain `rails runner`
-      # otherwise. The app decides how it wants to be invoked.
       def runner_command
         return @runner if @runner
 

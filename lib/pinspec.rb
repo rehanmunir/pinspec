@@ -5,7 +5,6 @@ require "zeitwerk"
 module Pinspec
 end
 
-# Multi-constant files: eager, and hidden from the autoloader.
 require_relative "pinspec/version"
 require_relative "pinspec/errors"
 require_relative "pinspec/types"

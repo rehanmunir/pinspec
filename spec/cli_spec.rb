@@ -2,10 +2,6 @@
 
 require "open3"
 
-# The exit-code taxonomy (spec v0.3 §5.1) is a *CLI* contract: it is how a script
-# tells "this target takes a block" from "this target doesn't exist". Asserting
-# the constants in TargetParser's spec does not prove the binary honours them, so
-# these examples shell out for real.
 RSpec.describe "pinspec CLI" do
   ROOT = File.expand_path("..", __dir__)
 
@@ -14,9 +10,6 @@ RSpec.describe "pinspec CLI" do
       RbConfig.ruby, "-I", File.join(ROOT, "lib"), File.join(ROOT, "exe", "pinspec"), *args
     )
 
-    # capture3 tags output with the locale's external encoding, which is US-ASCII
-    # when LANG is unset. Tag it UTF-8 so a stray non-ASCII byte fails the
-    # assertion it belongs to rather than blowing up the matcher itself.
     [stdout.force_encoding("UTF-8"), stderr.force_encoding("UTF-8"), status]
   end
 
@@ -36,8 +29,6 @@ RSpec.describe "pinspec CLI" do
   end
 
   describe "plan" do
-    # A SetupPlan needs an app: the schema and factories decide what the world is
-    # made of. The target file itself can live anywhere.
     def app_target(app, service, method = "call")
       root = File.join(ROOT, "spec", "fixtures", "apps", app)
       ["--app", root, "#{File.join(root, 'app/services', service)}##{method}"]
@@ -63,8 +54,6 @@ RSpec.describe "pinspec CLI" do
       expect(stdout).to include("set_flag :audit_v2 = false")
       expect(stdout).to include("set_tenant company_1")
 
-      # This target never mentions a current user, so none is built - and the plan says
-      # why instead of leaving a reader to spot the absence.
       expect(stdout).not_to include("set_whodunnit")
       expect(stdout).to include("current_user_not_built")
     end
@@ -88,7 +77,6 @@ RSpec.describe "pinspec CLI" do
     it "says so when it is not pointed at an app root" do
       stdout, stderr, status = run_cli("plan", target("invoice_calculator.rb", "call"))
 
-      # The target still resolves; there is simply no app to build a world from.
       expect(stdout).to include("InvoiceCalculator#call")
       expect(status.exitstatus).to eq(2)
       expect(stderr).to include("Rails application root")
@@ -101,8 +89,6 @@ RSpec.describe "pinspec CLI" do
       expect(stdout).to include("reads the process clock, not Time.zone")
     end
 
-    # One example per refusal path, because a refusal that exits 0 or 1 is
-    # indistinguishable from success or from a crash.
     {
       "a missing method"      => [["invoice_calculator.rb", "nope"], 2, /no method `nope`/],
       "an ambiguous name"     => [["ambiguous.rb", "call"], 3, /resolves to 2 definitions/],
@@ -138,7 +124,6 @@ RSpec.describe "pinspec CLI" do
 
       expect(status.exitstatus).to eq(0)
       expect(stdout).to include("warnings")
-      # Wrapping breaks the text across lines, so compare on collapsed whitespace.
       expect(stdout.gsub(/\s+/, " ")).to include(Pinspec::MULTI_DB_ROLLBACK_WARNING.gsub(/\s+/, " "))
     end
 
@@ -203,10 +188,6 @@ RSpec.describe "pinspec CLI" do
       expect(stderr).to include("Rails application root")
     end
 
-    # `--snapshot insta|approvals` is in the spec's CLI surface and is deliberately
-    # not built (spec v0.3 section 13.1 descope levers). Refusing before the probe
-    # runs is the point: a user who asked for insta and silently got inline literals
-    # would commit the wrong artifact and only find out in review.
     %w[insta approvals].each do |backend|
       it "refuses the unbuilt #{backend} backend before doing any work" do
         _stdout, stderr, status = run_cli(

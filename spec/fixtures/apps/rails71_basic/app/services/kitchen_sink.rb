@@ -1,6 +1,3 @@
-# The encoding axis: one return value covering every kind section 9 describes, so
-# that probe encoding and spec-host normalization are compared on all of them at
-# once rather than on whichever kind a realistic target happened to use.
 class KitchenSink
   def initialize(invoice)
     @invoice = invoice

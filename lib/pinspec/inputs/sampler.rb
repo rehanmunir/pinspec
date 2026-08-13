@@ -4,46 +4,20 @@ require "json"
 
 module Pinspec
   module Inputs
-    # Reads real rows out of a real database - the only part of pinspec's planning
-    # that is not a static parse.
-    #
-    # It runs as a *generated, read-only script inside the target app*, the same
-    # architecture as the probe (spec v0.3 §4a): the app already has ActiveRecord
-    # configured for its own adapter and its own database.yml, so pinspec needs no
-    # database gem, works on any adapter, and adds nothing to a client Gemfile.
-    # This is not the probe - the probe never opens the sample connection (§4b) -
-    # it is a separate plan-time process that only ever SELECTs.
-    #
-    # Sampling positions are *deterministic quartile offsets*, not random. Spec §7
-    # M-06 says "3 seeded-random"; offsets are strictly more reproducible and need no
-    # adapter-specific random function, so the same database always yields the same
-    # corpus and a plan stays content-addressable.
     class Sampler
       SCRIPT_PATH = "tmp/pinspec/sampler.rb"
 
-      # Preferred first. `development` is the default because a test database is
-      # empty, and a sampler pointed at an empty database silently reduces pinspec
-      # to boundary values (spec v0.3 §7 M-06, reversing v0.2's default).
       ENV_PREFERENCE = %w[development test].freeze
 
-      # A name that looks like production stops the run until someone says otherwise.
-      #
-      # Not \b: underscore is a word character, so \bprod\b never matches inside
-      # `myapp_production` - which is what a production database is actually called.
-      # Letters-only lookaround treats _ - . as delimiters and still rejects
-      # "reproduction".
       PRODUCTION_HINTS = [
         /(?<![a-z])prod(uction)?(?![a-z])/i,
         /(?<![a-z])live(?![a-z])/i,
         /(?<![a-z])master(?![a-z])/i
       ].freeze
 
-      # Never fetch an unbounded table scan just to find offsets.
       MAX_DISTINCT_STATUSES = 6
 
       class << self
-        # Which environment to sample, given what database.yml offers and how many
-        # rows each holds. `counts` is {env => row_count} for the target's tables.
         def choose_env(available:, counts: {}, override: nil)
           return override if override
 
@@ -58,9 +32,6 @@ module Pinspec
           PRODUCTION_HINTS.any? { |hint| name.to_s.match?(hint) }
         end
 
-        # Raises unless the caller has confirmed. Sampling production is read-only,
-        # but "read-only" and "safe to point at production unasked" are different
-        # claims.
         def guard_production!(name, confirmed: false)
           return unless production_like?(name)
           return if confirmed
@@ -76,14 +47,10 @@ module Pinspec
         end
       end
 
-      # requests: [{ table: "invoices", status_column: "status" | nil, limit: 5 }]
       def initialize(requests)
         @requests = Array(requests)
       end
 
-      # A stdlib-only script, held to a Ruby 2.6 syntax floor because it runs in the
-      # target app's Ruby, not pinspec's (spec v0.3 §0.1). No filter_map, no #then,
-      # no endless methods, no hash shorthand.
       def script
         <<~RUBY
           # frozen_string_literal: true

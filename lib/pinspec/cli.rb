@@ -3,8 +3,6 @@
 require "thor"
 
 module Pinspec
-  # Spec v0.3 §5. Verbs land milestone by milestone; the ones that aren't built
-  # yet say which milestone they arrive in rather than pretending to work.
   class CLI < Thor
     def self.exit_on_failure?
       true
@@ -26,8 +24,6 @@ module Pinspec
         file, method = Analyzer::TargetParser.split_target(target)
         target_profile = Analyzer::TargetParser.parse(file, method)
 
-        # Printed before the app is read: if there is no app to build a world from,
-        # what did resolve is still worth showing.
         print_profile(target_profile)
         puts
 
@@ -189,10 +185,6 @@ module Pinspec
 
         print_scores(report)
 
-        # The scores belong in the artifact a client reads, not only on this
-        # terminal. Without this the report's own mutation-scores section was
-        # unreachable - and by this project's rule, a branch nothing can reach is
-        # dead code rather than defence in depth.
         summary = Report::Summary.new(
           app_root: options[:app], profile: profile, target: capture.target,
           plan: capture.plan, corpus: capture.corpus, stability: capture.stability,
@@ -222,9 +214,6 @@ module Pinspec
 
     private
 
-    # An app on a different Ruby or gemset needs its own environment, because the
-    # probe deliberately scrubs the parent's - otherwise pinspec's own Gemfile
-    # follows it in and the app never boots.
     def app_env
       Array(options[:"app-env"]).each_with_object({}) do |pair, out|
         key, value = pair.split("=", 2)
@@ -232,8 +221,6 @@ module Pinspec
       end
     end
 
-    # Spec open question 5. The adapter boundary exists, but only :inline is built -
-    # and a backend that half works would produce pins nobody can trust.
     def refuse_unbuilt_backend!
       backend = options[:snapshot]
       return if backend.nil? || backend == "inline"
@@ -412,8 +399,6 @@ module Pinspec
       puts "  not asserted by this pin, so not scored: #{report.skipped.join(', ')}"
     end
 
-    # Aspects are blind to different things, so a per-aspect score read alone
-    # overstates the gap. What survives EVERY aspect is the real one.
     def print_cross_aspect(report)
       return if report.scored.size < 2
 
@@ -441,9 +426,9 @@ module Pinspec
       corpus.cases.each { |input_case| puts "  #{input_case}" }
 
       puts
-      puts "Sampled rows and import clusters need a database. pinspec reads one through"
-      puts "a generated read-only script in the app's own runtime; running it is not"
-      puts "wired into `plan` yet (see docs/spec-v0.3.md M-06)."
+      puts "Sampled rows and import clusters need a database. `plan` never opens one;"
+      puts "pass --sample to `capture` or `pin` to read real rows through a generated"
+      puts "read-only script in the app's own runtime."
     end
 
     def print_app(profile)
@@ -506,8 +491,6 @@ module Pinspec
       end
     end
 
-    # Warning text is written as prose and read in a terminal, so it is wrapped
-    # here rather than pre-broken in the string.
     def wrap(text, width: 76, indent: "     ")
       words = text.split(/\s+/)
       lines = words.each_with_object([[]]) do |word, acc|

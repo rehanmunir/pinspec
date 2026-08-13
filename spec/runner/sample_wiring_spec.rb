@@ -1,13 +1,5 @@
 # frozen_string_literal: true
 
-# The seam between the sampler and the hydrator. It needs no database: the sampler is
-# the only part that opens one, so stubbing its result exercises everything Capture
-# does with real rows.
-#
-# This is the line that carried the engine-prefix bug into the import path. On the
-# first real application every imported row failed with `uninitialized constant
-# SpreeOrder`, because the hydrator was not being told which factories the app has and
-# fell back to camelizing the table name.
 RSpec.describe Pinspec::Runner::Capture, "handing sampled rows to the hydrator" do
   def app
     File.expand_path("../fixtures/apps/engine_app", __dir__)
@@ -48,9 +40,6 @@ RSpec.describe Pinspec::Runner::Capture, "handing sampled rows to the hydrator" 
     expect(clusters.first.table).to eq("shop_orders")
   end
 
-  # The bug: without the app's factories the model comes out as `ShopOrder`, a
-  # constant that does not exist, and the failure surfaces inside the probe naming the
-  # application rather than the omission.
   it "names the model from the factory's declared class, not the table name" do
     clusters = capture.send(:sample_imports, plan, profile, target)
 
@@ -67,9 +56,6 @@ RSpec.describe Pinspec::Runner::Capture, "handing sampled rows to the hydrator" 
     capture.send(:sample_imports, plan, profile, target)
 
     expect(asked.map { |request| request[:table] }).to eq(["shop_orders"])
-    # Stratified by the status column, which is the highest-coverage win sampling has:
-    # the ubiquitous `case status` service object needs a row in each state, not three
-    # rows in the same one.
     expect(asked.first[:status_column]).to eq("status")
   end
 

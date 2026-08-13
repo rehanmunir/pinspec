@@ -27,8 +27,6 @@ FactoryBot.define do
     end
   end
 
-  # `parent:` on a top-level factory: the only form that is not also nested, and
-  # therefore the only one that proves the option is read.
   factory :discounted_invoice, parent: :invoice do
     total { 50.0 }
   end

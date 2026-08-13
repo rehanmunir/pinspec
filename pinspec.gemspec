@@ -18,16 +18,12 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/rehanmunir/pinspec"
   spec.license  = "MIT"
 
-  # CLI floor. The generated probe is held to a Ruby 2.6 syntax floor separately
-  # (spec v0.3 §0.1) because it runs inside the target app's Ruby, not this one.
   spec.required_ruby_version = ">= 3.2.0"
 
   spec.metadata["source_code_uri"]    = spec.homepage
   spec.metadata["changelog_uri"]      = "#{spec.homepage}/blob/main/CHANGELOG.md"
-  spec.metadata["documentation_uri"]  = "#{spec.homepage}/blob/main/docs/spec-v0.3.md"
   spec.metadata["bug_tracker_uri"]    = "#{spec.homepage}/issues"
 
-  # A leaked API key must not be enough to publish under this name.
   spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = Dir[
@@ -41,9 +37,6 @@ Gem::Specification.new do |spec|
   spec.executables   = ["pinspec"]
   spec.require_paths = ["lib"]
 
-  # prism is a default gem from Ruby 3.3, but 3.3.0 ships 0.19 and the node API
-  # this uses (keyword parameter node classes, compact_child_nodes) is 1.x. Ask
-  # for what is actually tested and let bundler override the default gem.
   spec.add_dependency "prism", ">= 1.0", "< 2"
   spec.add_dependency "thor", "~> 1.2"
   spec.add_dependency "zeitwerk", "~> 2.6"

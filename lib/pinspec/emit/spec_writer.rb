@@ -5,14 +5,6 @@ require "json"
 
 module Pinspec
   module Emit
-    # M-09. Writes the pin: an RSpec file that freezes what the probe observed,
-    # plus the generated support files it needs.
-    #
-    # The emitted spec controls the same six axes the probe controlled, by the same
-    # rules (spec v0.3 §4c). Where the two hosts could disagree, the spec forces the
-    # probe's answer rather than inheriting the suite's - most importantly the
-    # isolation regime and the queue adapter, either of which would otherwise make
-    # a green capture produce a red or vacuous spec.
     class SpecWriter
       SPEC_DIR = "spec/characterization"
       SUPPORT_DIR = "spec/characterization/support"
@@ -21,15 +13,10 @@ module Pinspec
       SUPPORT_TEMPLATE = File.expand_path("../../../templates/spec_support.rb", __dir__)
       FACTORY_TEMPLATE = File.expand_path("../../../templates/factory_build.rb", __dir__)
 
-      # Written into the header of every pin so a reader knows what they are looking
-      # at, and so re-pinning can recognise its own output (§12.6).
       PROVENANCE = "pinspec:generated"
 
       Result = Data.define(:spec_path, :support_paths, :pinned_cases, :aspects)
 
-      # `only_aspect` writes a variant containing just one aspect's expectations.
-      # M-11 needs that: the mutation backend takes FILES, not example filters, so
-      # grading the return pin independently of the job pin means one file each.
       def initialize(app_root:, target:, plan:, corpus:, stability:, fk_map:, force: false,
                      only_aspect: nil, spec_dir: nil, namer: nil)
         @app_root = app_root
@@ -65,9 +52,6 @@ module Pinspec
         )
       end
 
-      # pinspec may overwrite its own output, and nothing else. A file without the
-      # provenance header is someone's own work; a file with it whose body has been
-      # edited is someone's own work too, and both need --force to lose (§12.6).
       def guard_existing!
         return unless File.file?(spec_path)
 
@@ -120,8 +104,6 @@ module Pinspec
         underscore(@target.class_name).tr("/", "_") + "_" + @target.method_name.to_s.gsub(/[^a-z0-9_]/i, "")
       end
 
-      # ------------------------------------------------------------ rendering --
-
       def render
         [
           header,
@@ -139,12 +121,6 @@ module Pinspec
         ].reject(&:empty?).join("\n")
       end
 
-      # The helper THIS suite has, not the one rspec-rails scaffolds. The
-      # rails_helper/spec_helper split is a convention, and plenty of real suites
-      # never adopted it: Open Food Network has `spec/spec_helper.rb` and no
-      # rails_helper at all, so a hardcoded `require "rails_helper"` produced a spec
-      # that could not be loaded - and, because rspec reports a load error as
-      # `0 examples, 0 failures`, a verifier that called it green three times.
       def suite_helper
         return @suite_helper if defined?(@suite_helper)
 
@@ -155,8 +131,6 @@ module Pinspec
           end || "rails_helper"
       end
 
-      # A per-aspect variant is written to a scratch directory, so it has to reach
-      # back up to the shared support files rather than beside itself.
       def support_prefix
         @spec_dir == SPEC_DIR ? "" : "#{File.expand_path(File.join(@app_root, SUPPORT_DIR))}/".sub(%r{/support/$}, "/")
       end
@@ -205,8 +179,6 @@ module Pinspec
         lines
       end
 
-      # The regime is forced, not inherited. A suite that truncates instead of
-      # transacting would fire after_commit callbacks the probe never saw.
       def isolation_hook
         return truncation_note if @plan.isolation == :truncation
 
@@ -247,9 +219,6 @@ module Pinspec
         RUBY
       end
 
-      # Only for a target that reads the PROCESS clock. Guarding every pin would
-      # mean no pin survives a different timezone, including the great majority
-      # that are genuinely timezone-independent.
       def clock_guard(fingerprint)
         return "" unless @target.clock_dependent?
 
@@ -266,8 +235,6 @@ module Pinspec
         end.join
       end
 
-      # Records render as let! so they exist before the subject runs, and as the
-      # explicit calls a human would have written.
       def records
         steps = @plan.record_steps
         return "" if steps.empty?
@@ -288,11 +255,6 @@ module Pinspec
 
       def create_call(payload)
         if payload[:factory]
-          # NOT a bare `create(:order)`. A real app's factory can be
-          # non-deterministic - OFN's draws FFaker emails its own validation rejects
-          # about a third of the time - so the probe retries under the fixed seed. The
-          # spec host has to run the SAME loop or it consumes different random values
-          # and builds a different record, which reads as a behaviour change.
           return "PinspecFactory.create(:#{payload[:factory]})"
         end
 
@@ -322,7 +284,6 @@ module Pinspec
         canonical_literal(value)
       end
 
-      # Marks a string that is Ruby source, not a Ruby String.
       class RawRuby
         attr_reader :source
 
@@ -359,8 +320,6 @@ module Pinspec
         RUBY
       end
 
-      # Deterministic naming: the --no-llm path, and the default. M-10 may later
-      # improve the prose, but it can never touch a value.
       def description_for(input_case, observation)
         named = descriptions[input_case.id]
         return named if named
@@ -374,8 +333,6 @@ module Pinspec
         "#{@target.method_name} #{outcome} (#{input_case.id}, #{input_case.origin})"
       end
 
-      # Names only, and only when a namer was supplied. The deterministic names
-      # above are the default and are always sufficient.
       def descriptions
         return @descriptions if defined?(@descriptions)
 
@@ -424,8 +381,6 @@ module Pinspec
         parts.join(", ")
       end
 
-      # A tagged case argument becomes Ruby source. A ref becomes the let! name -
-      # never an id, which is the whole point.
       def ruby_literal(tagged)
         return canonical_literal(tagged) unless tagged.is_a?(Hash) && tagged.key?("t")
 
@@ -451,8 +406,6 @@ module Pinspec
         parts << jobs_expectation(observation) if wants?(:jobs) && !observation["enqueued_jobs"].to_a.empty?
         parts << mail_expectation(observation) if wants?(:mail) && !observation["mail_deliveries"].to_a.empty?
 
-        # A variant with nothing to assert would pass vacuously and score as a
-        # perfect pin, which is the opposite of the truth.
         parts << pending_aspect if parts.empty?
 
         parts.join("\n")
@@ -494,8 +447,6 @@ module Pinspec
         RUBY
       end
 
-      # Block-scoped: a factory's after(:create) enqueues too, and an assertion that
-      # counted setup's jobs would pass for the wrong reason.
       def jobs_expectation(observation)
         <<~RUBY
           it "enqueues the pinned jobs" do
@@ -517,23 +468,10 @@ module Pinspec
         RUBY
       end
 
-      # Stored as a Ruby literal rather than JSON: a reader can see what is pinned,
-      # and there is no parse step between the file and the assertion.
       def snapshot(value)
         canonical_literal(JSON.parse(JSON.generate(value)))
       end
 
-      # Ruby 3.4 changed `Hash#inspect` to put spaces around the rocket, so
-      # `inspect` renders `{"t" => "int"}` on 3.4 and `{"t"=>"int"}` on 3.3. Both
-      # parse to the same value, which is why this went unnoticed until pinspec's own
-      # suite ran on two Rubies - but the emitted file is a COMMITTED artifact, and a
-      # tool whose promise is "re-run and nothing changes unless behaviour changed"
-      # cannot rewrite every pin in the repository because someone upgraded Ruby.
-      #
-      # So the literal is rendered here rather than delegated. 3.4's spacing is the
-      # one chosen: it is the more readable form and it parses on every Ruby pinspec
-      # supports. Everything else - String, Integer, Float, Symbol, nil, Array -
-      # inspects identically across versions and is delegated.
       def canonical_literal(value)
         case value
         when Hash
@@ -546,8 +484,6 @@ module Pinspec
           value.inspect
         end
       end
-
-      # -------------------------------------------------------------- plumbing --
 
       def indent(text, spaces)
         return "" if text.to_s.empty?

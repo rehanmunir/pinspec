@@ -4,18 +4,10 @@ require "fileutils"
 require "json"
 require "tmpdir"
 
-# The worst thing this tool can output is a green it did not earn. On the first real
-# application it did exactly that: the app has no `rails_helper.rb`, the emitted spec
-# could not be loaded, and rspec reports a load failure as
-# `0 examples, 0 failures` with exit status 0 - so the verifier reported
-# `isolated green`, `hostile green`, `neighbored green` over a file that never
-# executed a line.
 RSpec.describe Pinspec::Verify::Verifier, "refusing a green it did not earn" do
   let(:app) { Dir.mktmpdir }
   let(:bin) { File.join(app, "bin") }
 
-  # A stand-in `bundle`, so the decision is tested through the real JSON path rather
-  # than by stubbing the method that makes it.
   def rspec_reports(summary)
     FileUtils.mkdir_p(bin)
     path = File.join(bin, "bundle")
@@ -48,7 +40,6 @@ RSpec.describe Pinspec::Verify::Verifier, "refusing a green it did not earn" do
     expect(outcome.examples).to eq(3)
   end
 
-  # The bug.
   it "refuses to call zero examples green" do
     outcome = verify("example_count" => 0, "failure_count" => 0)
 
@@ -57,8 +48,6 @@ RSpec.describe Pinspec::Verify::Verifier, "refusing a green it did not earn" do
     expect(outcome.examples).to eq(0)
   end
 
-  # rspec counts an error raised while LOADING a file separately from a failure, so a
-  # file that blew up on require can report failure_count 0 with examples that ran.
   it "refuses when a load error was reported alongside passing examples" do
     outcome = verify("example_count" => 2, "failure_count" => 0,
                      "errors_outside_of_examples_count" => 1)

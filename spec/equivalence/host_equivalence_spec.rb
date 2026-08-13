@@ -2,21 +2,6 @@
 
 require "json"
 
-# M-14 HostEquivalence. Spec v0.3 §4c names six axes on which the probe process and
-# the emitted-spec process must agree, and §7 M-14 asks for host agreement to be a
-# build-breaking test rather than a design intention.
-#
-# The mechanism is simple: a green emitted spec IS the assertion. The spec compares
-# what the spec host produces against the snapshot the probe produced, so if it
-# passes, the two hosts agreed. Each axis below then adds the property that makes
-# that agreement meaningful for that axis - most importantly, that the suite is set
-# up to DISAGREE with the plan, so a passing pin proves the emitted spec forced the
-# capture's answer rather than inheriting a matching one by luck.
-#
-# Skipped rather than failed when the fixture apps are not prepared:
-#
-#   cd spec/fixtures/apps/rails71_basic && bundle install && RAILS_ENV=test bundle exec rails db:schema:load
-#   cd spec/fixtures/apps/rails61_legacy && bundle install && RAILS_ENV=test bundle exec rails db:schema:load
 RSpec.describe "host equivalence, across the six contract axes" do
   FIXTURES = File.expand_path("../fixtures/apps", __dir__)
 
@@ -29,8 +14,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
     File.join(FIXTURES, app)
   end
 
-  # Each fixture runs on its own Ruby, which is the two-process design in
-  # miniature: pinspec's CLI and the app under test share nothing but a directory.
   def app_env(app)
     gemset = File.expand_path("~/.rvm/gems/#{GEMSETS.fetch(app)}")
     ruby = File.expand_path("~/.rvm/rubies/#{GEMSETS.fetch(app)}/bin")
@@ -43,8 +26,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
       system("pg_isready", out: File::NULL, err: File::NULL)
   end
 
-  # capture -> emit -> verify, the whole loop, returning everything an axis might
-  # want to assert about.
   def pin(app, service, method: "call", cases: 1, level: :full)
     root = app_root(app)
     env = app_env(app)
@@ -78,8 +59,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
     let(:result) { pin("rails71_basic", "kitchen_sink.rb") }
 
     it "agrees on every value kind at once" do
-      # One target returning all of them, so agreement is tested on the whole
-      # vocabulary rather than on whichever kind a realistic target happened to use.
       expect(result[:outcomes]).to all(be_green)
     end
 
@@ -106,18 +85,14 @@ RSpec.describe "host equivalence, across the six contract axes" do
       expect(result[:outcomes]).to all(be_green)
     end
 
-    # The regime that v0.2 got wrong, and the reason isolation is a plan property.
     it "fires after_commit consistently under the truncation regime" do
       skip "rails61_legacy not prepared" unless prepared?("rails61_legacy")
       result = pin("rails61_legacy", "order_placer.rb")
 
       expect(result[:capture].plan.isolation).to eq(:truncation)
-      # No wrapper: the capture ran uncommitted-to-rolled-back, so the spec must not
-      # introduce a transaction the capture did not have.
       expect(result[:source]).not_to include("ActiveRecord::Base.transaction(requires_new: true)")
       expect(result[:source]).to include("isolation: truncation")
 
-      # LedgerJob only exists because after_commit fired - in BOTH hosts.
       expect(result[:source]).to include('"job" => "LedgerJob"')
       expect(result[:outcomes]).to all(be_green)
     end
@@ -137,8 +112,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
     let(:result) { pin("rails71_basic", "invoice_calculator.rb") }
 
     it "attributes to the target only what the target did" do
-      # The :customer factory has an after(:create) that enqueues. It fires while
-      # the PLAN builds records, so neither host may count it.
       expect(result[:source]).not_to include("factory-callback")
     end
 
@@ -161,8 +134,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
       expect(isolated).to be_green
     end
 
-    # The failure that would otherwise wait for the client's CI. Time.zone does not
-    # govern Time.now, and both safety nets share a machine with the capture.
     it "refuses to hold under a different timezone, and says why" do
       hostile = result[:outcomes].find { |outcome| outcome.config == :hostile }
 
@@ -182,9 +153,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
     let(:result) { pin("rails71_basic", "locale_greeter.rb") }
     let(:snapshot) { result[:source] }
 
-    # The fixture's rails_helper deliberately sets :fr and Asia/Tokyo for the whole
-    # suite. If the emitted spec did not force the plan's answer back, these would
-    # be "Bonjour" and "Asia/Tokyo" and the pin would fail.
     it "forces the plan's locale over the suite's" do
       expect(snapshot).to include('"v" => "Hello"')
       expect(snapshot).not_to include("Bonjour")
@@ -205,7 +173,6 @@ RSpec.describe "host equivalence, across the six contract axes" do
 
   describe "the harness itself" do
     it "checks every axis the contract names" do
-      # If §4c grows an axis, this list is where it has to be answered.
       expect(%w[encoding isolation sinks clock locale zone].size).to eq(6)
     end
   end

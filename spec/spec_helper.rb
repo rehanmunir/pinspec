@@ -13,9 +13,6 @@ module FixtureHelpers
     Pinspec::Analyzer::TargetParser.parse(fixture(name), method)
   end
 
-  # The acceptance criterion is that source_range is exact to the def...end span,
-  # which is worth asserting against the text rather than against line numbers
-  # that shift every time a fixture is edited.
   def source_span(name, range)
     lines = File.readlines(fixture(name))
     lines[(range.first - 1)..(range.last - 1)].join

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-# M-01 acceptance, spec v0.3 §7. Every `it` here maps to a checklist line or to
-# one of the matrix rows M-01 gates (23, 24, 27, 29, 35, 37).
 RSpec.describe Pinspec::Analyzer::TargetParser do
   describe "the headline shape: constructor dependencies + a zero-argument #call" do
     subject(:profile) { parse("invoice_calculator.rb", "call") }
@@ -35,9 +33,7 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
     end
 
     it "prefers the default literal over the name, which is the more reliable signal" do
-      # "rounding" looks like a model to a name heuristic; `:up` settles it.
       expect(param(profile.initializer_params, :rounding).type_hint).to eq("Symbol")
-      # and TaxEngine is inferred from `TaxEngine.new`, not from the word "engine".
       expect(param(profile.initializer_params, :tax_engine).type_hint).to eq("TaxEngine")
     end
 

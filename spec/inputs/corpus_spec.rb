@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-# M-06 acceptance, spec v0.3 §7 - the input half. The allocation examples matter
-# most: a `#call` target keeps its dependencies in the constructor, so a budget
-# spent entirely on constructor parameters leaves the method's own arguments
-# untested.
 RSpec.describe Pinspec::Inputs::Corpus do
   def parts_for(app, service, method = "call")
     root    = File.expand_path("../fixtures/apps/#{app}", __dir__)
@@ -33,7 +29,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     end
 
     it "passes the plan's ref for a model-typed parameter, never an id" do
-      # Ids come from sequences, and sequences do not roll back.
       expect(first.ctor_args.first).to eq("t" => "ref", "v" => "invoice_1")
     end
   end
@@ -46,12 +41,9 @@ RSpec.describe Pinspec::Inputs::Corpus do
 
       expect(varied.map(&:origin).uniq).to eq([:boundary])
       expect(varied.map { |c| kwargs_of(c, "tax_rate") }.compact).to eq([0.0, 1.0, -1.0])
-      # The ref never changes: varying a ref would vary the world, not the input.
       expect(varied.map { |c| c.ctor_args.first["v"] }.uniq).to eq(["invoice_1"])
     end
 
-    # An omitted argument runs the method's own default expression, and a default
-    # can read the clock or a feature flag.
     it "omits an optional argument entirely in one case" do
       omitted = cases.find { |c| c.ctor_kwargs.empty? }
 
@@ -75,8 +67,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
   end
 
   describe "budget allocation across ctor and method parameters" do
-    # The acceptance criterion: three constructor parameters and a method
-    # parameter, under a budget too small for both lists.
     subject(:cases) { corpus("full_app", "order_pricer.rb", "call", max_cases: 5).cases }
 
     it "respects the cap" do
@@ -87,7 +77,7 @@ RSpec.describe Pinspec::Inputs::Corpus do
       express = cases.find { |c| kwargs_of(c, "express") == true }
 
       expect(express).not_to be_nil
-      expect(express.id).to eq("c003") # interleaved, so it arrives early
+      expect(express.id).to eq("c003")
     end
 
     it "still varies constructor parameters" do
@@ -105,9 +95,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     subject(:cases) { corpus("basic_app", "bulk_importer.rb").cases }
 
     it "spends the whole budget on parameters that can actually vary" do
-      # *extras, **options and *rest cannot be varied, and a variation for one
-      # would consume a case slot only for dedup to discard it - leaving a target
-      # with splats fewer real cases than its budget allows.
       tight = corpus("basic_app", "bulk_importer.rb", "call", max_cases: 4)
 
       expect(tight.size).to eq(4)
@@ -115,15 +102,12 @@ RSpec.describe Pinspec::Inputs::Corpus do
     end
 
     it "never renders a splat as an argument" do
-      # number and batch_size, never *rest. One case omits batch_size, so the
-      # ceiling is what matters.
       expect(cases.map { |c| c.args.size }.max).to eq(2)
-      expect(cases.map { |c| c.ctor_args.size }.max).to eq(1) # customer, never *extras
-      expect(cases.map { |c| c.ctor_kwargs }.uniq).to eq([{}]) # never **options
+      expect(cases.map { |c| c.ctor_args.size }.max).to eq(1)
+      expect(cases.map { |c| c.ctor_kwargs }.uniq).to eq([{}])
     end
 
     it "declines an ambiguous column type rather than guessing" do
-      # `number` is a string on invoices and an integer on reports.
       expect(Pinspec::Tags.decode(cases.first.args.first)).to be_nil
     end
   end
@@ -136,8 +120,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     end
 
     it "falls back to a schema column of the same name" do
-      # `region` hints at a "Region" model that does not exist, but customers.region
-      # is a string - and the schema is a fact where the name is a guess.
       cases = corpus("basic_app", "customer_report.rb", "Reports::CustomerReport.call").cases
       regions = cases.map { |c| Pinspec::Tags.decode(c.args.first) }.uniq
 
@@ -145,7 +127,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     end
 
     it "passes nil when nothing is known, which exercises the commonest legacy crash" do
-      # full_app has no `quantity` column anywhere.
       cases = corpus("full_app", "order_pricer.rb").cases
 
       expect(Pinspec::Tags.decode(cases.first.args.first)).to be_nil
@@ -156,8 +137,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     subject(:first) { corpus("full_app", "order_pricer.rb").cases.first }
 
     it "tags every value, including ones JSON could carry natively" do
-      # A bare 5 would be ambiguous between an Integer and a whole decimal, and the
-      # probe would have to guess.
       (first.ctor_args + first.args + first.ctor_kwargs.values + first.kwargs.values).each do |value|
         expect(value).to be_a(Hash)
         expect(value).to have_key("t")
@@ -186,7 +165,6 @@ RSpec.describe Pinspec::Inputs::Corpus do
     end
 
     it "produces only the defaults case when there is nothing to vary" do
-      # Both parameters are refs.
       cases = corpus("full_app", "company_merger.rb").cases
 
       expect(cases.size).to eq(1)

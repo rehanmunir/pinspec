@@ -4,17 +4,10 @@ require "fileutils"
 require "json"
 require "tmpdir"
 
-# M-06's live half. The sampler is the only part of planning that opens a database,
-# and it is a SEPARATE process from the probe on purpose (spec v0.3 section 4b): it
-# reads from `development` while the probe writes under `RAILS_ENV=test`. If those
-# two ever shared a connection, a snapshot would stop being portable to the emitted
-# spec, so the separation is the contract - not an implementation detail.
 RSpec.describe Pinspec::Inputs::SampleRunner do
   let(:app_dir) { Dir.mktmpdir }
   let(:bin_dir) { File.join(app_dir, "bin") }
 
-  # A stand-in `rails runner`, so the process boundary can be tested without a
-  # booting Rails app. It records the environment it was handed.
   def fake_rails(body)
     FileUtils.mkdir_p(bin_dir)
     path = File.join(bin_dir, "rails")
@@ -69,9 +62,6 @@ RSpec.describe Pinspec::Inputs::SampleRunner do
       expect(File.read(File.join(app_dir, "argv.txt"))).to include(described_class::SCRIPT_PATH)
     end
 
-    # The reversal of v0.2's default. A test database is empty, and a sampler pointed
-    # at an empty database silently degrades pinspec to boundary values while looking
-    # like it worked.
     it "samples development by default, not test" do
       fetch("echo '#{JSON.generate(payload)}'")
 
@@ -86,9 +76,6 @@ RSpec.describe Pinspec::Inputs::SampleRunner do
       expect(child_env["RAILS_ENV"]).to eq("staging")
     end
 
-    # Same scrub as the probe: pinspec's own Gemfile must not follow it into the app,
-    # or the app boots against pinspec's gems and fails in a way that looks like the
-    # app's fault.
     it "does not let pinspec's own bundle follow it into the app" do
       fetch("echo '#{JSON.generate(payload)}'")
 
@@ -114,9 +101,6 @@ RSpec.describe Pinspec::Inputs::SampleRunner do
       expect(result).not_to be_empty
     end
 
-    # Two overlapping slices - the quartile offsets and the status strata - so the
-    # same row usually appears twice. Hydrating it twice would build two records that
-    # are supposed to be one.
     it "deduplicates the sampled and stratified slices by primary key" do
       result = fetch("echo '#{JSON.generate(payload)}'")
 
@@ -141,8 +125,6 @@ RSpec.describe Pinspec::Inputs::SampleRunner do
   end
 
   describe "failing loudly" do
-    # Silence here would mean a corpus of boundary values presented as if it had been
-    # drawn from real data, which is the one outcome worse than no sampling.
     it "raises with the app's own error when the script does not survive boot" do
       expect { fetch("echo 'ActiveRecord::NoDatabaseError' >&2\nexit 1") }
         .to raise_error(Pinspec::ProbeFailure, /exited 1.*NoDatabaseError/m)

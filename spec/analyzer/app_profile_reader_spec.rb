@@ -1,9 +1,5 @@
 # frozen_string_literal: true
 
-# M-04 acceptance, spec v0.3 §7. This is the module that makes `analyze` a
-# pre-engagement hazard report, so the examples are about hazards being *named*,
-# not merely detected: an unread Gemfile.lock, an untransacted suite, a second
-# writing database, and a Rails version below the floor all have to be loud.
 RSpec.describe Pinspec::Analyzer::AppProfileReader do
   def profile(app, **options)
     described_class.read(File.expand_path("../fixtures/apps/#{app}", __dir__), **options)
@@ -12,9 +8,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
   describe "a plain modern app" do
     subject(:app) { profile("basic_app") }
 
-    # A real lock does not always carry a RUBY VERSION section (Open Food Network's
-    # does not), and "unknown" in a client-facing report header is a worse answer than
-    # the one the app states in `.ruby-version`.
     it "falls back to .ruby-version when the lock does not say" do
       engine = described_class.read(File.expand_path("../fixtures/apps/engine_app", __dir__))
 
@@ -68,14 +61,10 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
 
     describe "Gemfile.lock parsing" do
       it "reads resolved specs and not dependency or DEPENDENCIES lines" do
-        # factory_bot_rails is a resolved spec at four spaces; `rails (~> 7.1)`
-        # under DEPENDENCIES sits at two, and `actionview (= 7.1.3.2)` at six.
         expect(app.rails_version).not_to include("~>")
       end
 
       it "keeps a prerelease version intact rather than truncating it" do
-        # Keeping only digits and dots turns "7.2.0.beta1" into "7.2.0.", which
-        # Gem::Version rejects - a crash in the middle of a report.
         odd = profile("oddities_app")
 
         expect(odd.rails_version).to eq("7.2.0.beta1")
@@ -116,7 +105,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
     end
 
     it "qualifies a namespaced model" do
-      # module Billing; class Statement < ApplicationRecord
       expect(app.after_commit_models.map(&:model)).to eq(["Billing::Statement"])
     end
 
@@ -146,7 +134,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
     end
 
     it "detects attachments from usage as well as from gems" do
-      # ActiveStorage ships inside Rails, so has_one_attached is its evidence.
       expect(app.attachments).to contain_exactly(:active_storage, :carrierwave)
     end
 
@@ -155,13 +142,10 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
     end
 
     it "recognises a gem that only appears in its hyphenated variants" do
-      # This lock has database_cleaner-active_record and database_cleaner-core,
-      # and no plain database_cleaner entry at all.
       expect(app.test_stack.database_cleaner_gem).to be(true)
     end
 
     it "lets config/environments/test.rb win, because the probe runs under test" do
-      # application.rb says "Berlin"; test.rb says "UTC".
       expect(app.default_zone).to eq("UTC")
     end
 
@@ -179,7 +163,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
     end
 
     it "treats every after_commit variant as the same hazard" do
-      # after_commit and after_update_commit both fire outside the transaction.
       expect(app.after_commit_models.map(&:model)).to eq(%w[Order Order])
       expect(app.findings(:after_commit).size).to eq(2)
     end
@@ -216,9 +199,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
       expect(app.isolation).to eq(:truncation)
     end
 
-    # The canonical DatabaseCleaner setup. Reading use_transactional_fixtures
-    # alone would call this suite untransacted, decide after_commit fires, and
-    # diverge the probe from the emitted spec.
     it "lets DatabaseCleaner's :transaction outrank use_transactional_fixtures = false" do
       app = profile("legacy_app")
 
@@ -229,7 +209,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
     end
 
     it "assumes the first strategy is the default, and says so" do
-      # :transaction by default with :truncation for js: true specs is everywhere.
       app = profile("legacy_app")
 
       expect(app.notes.map { |n| n[:kind] }).to include(:multiple_db_cleaner_strategies)
@@ -318,8 +297,6 @@ RSpec.describe Pinspec::Analyzer::AppProfileReader do
       expect(app.auth).to eq(:none)
     end
 
-    # "not found" and "not used" are different answers, and reporting the first
-    # as the second is how a hazard report becomes misleading.
     it "says that every gem answer is unverified" do
       expect(app.notes.map { |n| n[:kind] }).to include(:no_gemfile_lock)
       expect(app.warnings.join).to include("No Gemfile.lock was read")

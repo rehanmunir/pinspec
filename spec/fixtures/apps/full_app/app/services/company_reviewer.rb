@@ -1,6 +1,3 @@
-# Reads the current user, which is what makes the auth and whodunnit steps
-# relevant: pinspec only builds a user when the target could observe one, so a
-# fixture that never mentions it cannot exercise those steps.
 class CompanyReviewer
   def initialize(company)
     @company = company

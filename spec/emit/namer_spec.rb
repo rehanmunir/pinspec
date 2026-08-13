@@ -2,10 +2,6 @@
 
 require "json"
 
-# M-10 acceptance, spec v0.3 §7 and goal 5: the LLM touches names, grouping and
-# prose, and never a value. These examples are about that being STRUCTURAL - there
-# is no code path by which a model's reply becomes an expected value - rather than
-# a matter of how the prompt is worded.
 RSpec.describe Pinspec::Emit::Namer do
   let(:target) do
     Pinspec::Analyzer::TargetParser.parse(
@@ -55,8 +51,6 @@ RSpec.describe Pinspec::Emit::Namer do
       JSON.generate(namer.payload([facts]))
     end
 
-    # The load-bearing assertion. If a value cannot reach the request, no reply can
-    # be a value laundered back.
     it "sends no pinned value, in any form" do
       expect(sent).not_to include("110.0")
       expect(sent).not_to include("decimal")
@@ -84,8 +78,6 @@ RSpec.describe Pinspec::Emit::Namer do
       expect(names["c001"]).to eq("with the default tax rate (c001)")
     end
 
-    # The second wall: even a model that ignored every instruction cannot get a
-    # value into a spec, because a value-shaped string does not survive.
     it "discards a description that is trying to be a value" do
       [
         "returns 110.0",
@@ -98,10 +90,6 @@ RSpec.describe Pinspec::Emit::Namer do
       end
     end
 
-    # The rule the other two miss: a model that echoes string values back as prose
-    # ("returns \"committed\" when the status is \"paid\"") has put the pinned values in
-    # the example name, where the next reader will trust them and the next capture
-    # will not update them. No rocket, no digits - just quotes.
     it "discards a description that quotes values back as prose" do
       names = naming({ "cases" => [{ "id" => "c001",
                                      "description" => 'returns "committed" when the status is "paid"' }] })

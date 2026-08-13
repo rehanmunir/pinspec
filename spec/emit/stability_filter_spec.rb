@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-# M-08 acceptance, spec v0.3 §7. The declared field set is the substance: v0.2's
-# "deep-compare" would have let `duration_ms` (never equal) and SQL fingerprints
-# (the most fragile field, and opt-in for pinning) decide the fate of every pin.
 RSpec.describe Pinspec::Emit::StabilityFilter do
   def run(number, observations)
     Pinspec::Runner::Sandbox::Result.new(
@@ -66,7 +63,6 @@ RSpec.describe Pinspec::Emit::StabilityFilter do
 
   describe "causes, because unstable without a cause is an accusation" do
     it "calls a changed integer identity churn" do
-      # Sequences are not transactional: a rolled-back case still advances them.
       report = filter([observation("c001", "return_value" => { "t" => "int", "v" => 3 })],
                       [observation("c001", "return_value" => { "t" => "int", "v" => 4 })])
 
@@ -95,7 +91,6 @@ RSpec.describe Pinspec::Emit::StabilityFilter do
     end
 
     it "quarantines a case whose world could not be built" do
-      # The plan is the problem, not the target.
       broken = observation("c001", "status" => "setup_error",
                                    "setup_error" => { "error" => { "class" => "ActiveRecord::RecordInvalid", "message" => "Email taken" } })
 

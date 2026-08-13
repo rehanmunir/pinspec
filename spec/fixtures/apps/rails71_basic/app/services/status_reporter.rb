@@ -1,4 +1,3 @@
-# A plain scalar return, and a raise on one branch: raises are pins too.
 class StatusReporter
   def initialize(invoice)
     @invoice = invoice

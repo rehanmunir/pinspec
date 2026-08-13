@@ -4,16 +4,10 @@ require "fileutils"
 require "json"
 require "tmpdir"
 
-# M-11's backend boundary. The spike (docs/spike-m11-mutation-adapter.md) settled
-# three things that these examples hold in place, because each one was learned the
-# hard way and is invisible from the call site: the backend selects by NAME, its two
-# options are not independent, and it must NOT be handed the app's gemset.
 RSpec.describe Pinspec::Validate::MutationAdapter do
   let(:bin_dir) { File.join(Dir.mktmpdir, "bin") }
   let(:app_dir) { Dir.mktmpdir }
 
-  # A stand-in backend, so the contract can be tested without a 3.4-only gem being
-  # installed. It records its own argv, which is the thing under test.
   def fake_backend(stdout:, exit_status: 0)
     FileUtils.mkdir_p(bin_dir)
     path = File.join(bin_dir, "mutineer")
@@ -65,8 +59,6 @@ RSpec.describe Pinspec::Validate::MutationAdapter do
       ENV["PATH"] = original
     end
 
-    # The refusal has to teach, because the cause is a Ruby floor the user did not
-    # choose and cannot see: pinspec runs on 3.2, the backend needs 3.4.
     it "names the Ruby floor, the install, and what is still usable" do
       allow(described_class).to receive(:available?).and_return(false)
 
@@ -107,9 +99,6 @@ RSpec.describe Pinspec::Validate::MutationAdapter do
       expect(argv.grep(%r{^/})).to be_empty
     end
 
-    # Strategy is not a free choice. Surgical redefinition needs a shared VM; a
-    # test-command is a subprocess, so it forces whole-file reload. Getting this pair
-    # wrong produces a silently meaningless score rather than an error.
     it "uses redefine in-process and reload behind a test command" do
       with_backend_on_path(stdout: "echo '{}'") do
         adapter.score(spec_path)
@@ -136,8 +125,6 @@ RSpec.describe Pinspec::Validate::MutationAdapter do
       expect(child_env["RAILS_ENV"]).to eq("test")
     end
 
-    # The bug this prevents: handing the app's gemset to the backend hides the
-    # backend from itself, and `mutineer` is then "not found" while plainly on PATH.
     it "leaves GEM_HOME alone, because that is how the backend finds its own gems" do
       expect(adapter.send(:environment)).not_to have_key("GEM_HOME")
       expect(adapter.send(:environment)).not_to have_key("GEM_PATH")
@@ -165,8 +152,6 @@ RSpec.describe Pinspec::Validate::MutationAdapter do
       expect(outcome.survivors.first).to eq("operator" => "arithmetic", "line" => 12, "token" => "*")
     end
 
-    # A backend that fails must not look like a pin that scored zero. Zero is a
-    # finding; unscored is an absence of one.
     it "reports an unscored outcome, not a zero, when there is no report" do
       outcome = with_backend_on_path(stdout: "echo 'boom' >&2", exit_status: 1) { adapter.score(spec_path) }
 

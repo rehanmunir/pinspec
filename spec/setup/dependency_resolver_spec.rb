@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-# The half of M-05 that answers "what does Invoice mean" - the question most
-# likely to be wrong on a real app, which is why it has its own file.
 RSpec.describe Pinspec::Setup::DependencyResolver do
   def resolver_for(app)
     profile = Pinspec::Analyzer::AppProfileReader.read(
@@ -35,15 +33,12 @@ RSpec.describe Pinspec::Setup::DependencyResolver do
   end
 
   describe "#table_for_type_hint" do
-    # A hint is a guess made from a parameter's name, and real names carry
-    # qualifiers: source_company, new_invoice, original_line_item.
     it "drops leading qualifier words until something resolves" do
       expect(full.table_for_type_hint("SourceCompany").name).to eq("companies")
       expect(basic.table_for_type_hint("OriginalLineItem").name).to eq("line_items")
     end
 
     it "prefers the whole hint, so a real model wins over a suffix" do
-      # LineItem must resolve as itself, not by dropping "Line" to reach Item.
       expect(basic.table_for_type_hint("LineItem").name).to eq("line_items")
     end
 
@@ -55,8 +50,6 @@ RSpec.describe Pinspec::Setup::DependencyResolver do
 
   describe "#model_for" do
     it "prefers a factory's declared class over the naming convention" do
-      # basic_app's :customer factory declares class: "Billing::Customer", which is
-      # a fact; "Customer" would only be a convention.
       expect(basic.model_for("customers")).to eq("Billing::Customer")
     end
 
@@ -73,8 +66,6 @@ RSpec.describe Pinspec::Setup::DependencyResolver do
     end
 
     it "declines a factory that never persists, so no world is founded on it" do
-      # :report_stub uses skip_create. Its model resolves to the reports table, so
-      # the only thing standing between it and a plan is the persistence check.
       expect(basic.table_for("Report").name).to eq("reports")
       expect(basic.factory_for("reports")).to be_nil
       expect(basic.declined_factory_for("reports").name).to eq(:report_stub)
@@ -92,7 +83,6 @@ RSpec.describe Pinspec::Setup::DependencyResolver do
     end
 
     it "omits a nullable foreign key, leaving the smallest world that exists" do
-      # contracts.warehouse_id is nullable.
       expect(full.required_associations(full_table("contracts")).map(&:first))
         .not_to include("warehouse_id")
     end
@@ -158,7 +148,7 @@ RSpec.describe Pinspec::Setup::DependencyResolver do
       expect(full.placeholder_for(column(:string), frozen_time: frozen, uniquifier: "p1-2"))
         .to eq("pinspec-p1-2")
       expect(full.placeholder_for(column(:integer), frozen_time: frozen, uniquifier: "p1-2"))
-        .to eq(4) # 1 + (1 + 2)
+        .to eq(4)
     end
 
     it "has no value for a type it does not model" do

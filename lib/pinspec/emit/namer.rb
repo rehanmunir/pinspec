@@ -4,23 +4,9 @@ require "json"
 
 module Pinspec
   module Emit
-    # M-10. The only place an LLM touches pinspec, and it can only touch names.
-    #
-    # Value-blindness is STRUCTURAL, not a matter of prompting. The model is handed
-    # a description of each case - the method, the origin, the outcome kind, the
-    # parameter names - and never a pinned value, a snapshot, or a record. Its reply
-    # is validated against a schema whose only strings are descriptions, and any
-    # description that fails validation is discarded in favour of the deterministic
-    # name. There is no code path by which a returned string becomes an expected
-    # value.
-    #
-    # The deterministic namer is the default and always sufficient: `--no-llm` is not
-    # a degraded mode, it is the normal one.
     class Namer
       MAX_DESCRIPTION = 120
 
-      # What the model is allowed to see. Note what is absent: return_value, error
-      # messages, job arguments, attributes, ids.
       Facts = Data.define(:case_id, :origin, :outcome, :method_name, :class_name, :parameters)
 
       def initialize(target:, enabled: false, client: nil)
@@ -33,8 +19,6 @@ module Pinspec
         @enabled && !@client.nil?
       end
 
-      # Returns { "c001" => "description" }, deterministic names for anything the
-      # model did not or could not name.
       def describe(cases)
         facts = cases.map { |input_case, observation| facts_for(input_case, observation) }
         fallback = facts.to_h { |fact| [fact.case_id, deterministic(fact)] }
@@ -44,11 +28,9 @@ module Pinspec
         improved = request(facts)
         fallback.merge(sanitize(improved, fallback))
       rescue StandardError
-        # A naming service being down is not a reason to fail a pin.
         fallback
       end
 
-      # What gets sent. Public so a spec can assert that no value can reach it.
       def payload(facts)
         {
           "task" => "Describe each characterization test case in one short phrase.",
@@ -83,7 +65,6 @@ module Pinspec
         )
       end
 
-      # The name pinspec uses when there is no model, which is most of the time.
       def deterministic(fact)
         verb = fact.outcome == :raises ? "raises" : "returns the pinned value"
 
@@ -97,9 +78,6 @@ module Pinspec
         Array(parsed["cases"]).to_h { |entry| [entry["id"], entry["description"]] }
       end
 
-      # Anything that is not a short, plain description is dropped. This is the
-      # second wall: even a model that ignored every instruction cannot get a value
-      # into a spec, because a value-shaped string does not survive here.
       def sanitize(improved, fallback)
         improved.each_with_object({}) do |(case_id, description), out|
           next unless fallback.key?(case_id)
@@ -113,11 +91,9 @@ module Pinspec
         end
       end
 
-      # A description has no business containing a literal, a hash rocket, or a
-      # serializer tag. If it does, it is trying to be a value.
       def suspicious?(text)
         return true if text.match?(/=>|\{"t"|\bexpect\b|\beq\(/)
-        return true if text.match?(/\d{3,}/)          # an id or a total
+        return true if text.match?(/\d{3,}/)
         return true if text.count('"') > 2
 
         false
