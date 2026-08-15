@@ -200,7 +200,7 @@ module Pinspec
           name = decode(args.first)&.to_sym
           return nil unless name
 
-          attribute(name, :association, node, factory: keyword_options(args)[:factory]&.to_sym, source: nil)
+          attribute(name, :association, node, factory: factory_name(args), source: nil)
         when :sequence
           name = decode(args.first)&.to_sym
           return nil unless name
@@ -216,15 +216,24 @@ module Pinspec
         return nil if BARE_NON_ATTRIBUTES.include?(node.name)
         return nil if STRUCTURAL_CALLS.include?(node.name)
 
-        if node.block
+        if node.block.is_a?(Prism::BlockNode)
           attribute(node.name, :block, node)
         elsif args.empty?
           attribute(node.name, :association, node)
         elsif args.all? { |arg| arg.is_a?(Prism::KeywordHashNode) }
-          attribute(node.name, :association, node, factory: keyword_options(args)[:factory]&.to_sym)
+          attribute(node.name, :association, node, factory: factory_name(args))
         else
           attribute(node.name, :static, node)
         end
+      end
+
+      # factory_bot accepts an array here - `factory: %i[user admin]` names a factory
+      # and then traits to apply to it - so the value is not always a symbol.
+      def factory_name(args)
+        declared = keyword_options(args)[:factory]
+        declared = declared.first if declared.is_a?(Array)
+
+        declared&.to_sym
       end
 
       def attribute(name, kind, node, factory: nil, source: :from_node)
@@ -238,7 +247,7 @@ module Pinspec
       end
 
       def attribute_source(node)
-        if node.block
+        if node.block.is_a?(Prism::BlockNode)
           node.block.body&.slice
         else
           args = Array(node.arguments&.arguments).reject { |a| a.is_a?(Prism::KeywordHashNode) }

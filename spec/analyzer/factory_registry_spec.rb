@@ -5,14 +5,36 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
     described_class.read(File.expand_path("../fixtures/apps/#{app}", __dir__))
   end
 
+  # Both of these crashed the registry with a NoMethodError on real applications -
+  # chatwoot and forem - rather than being parsed or skipped. A crash while profiling
+  # takes the whole run down before it reaches a single target.
+  describe "factory syntax that only real suites contain" do
+    subject(:widget) { index("basic_app").factory(:widget) }
+
+    it "parses a block passed as an argument, which has no body to read" do
+      expect(widget).not_to be_nil
+      expect(widget.attribute("widget_color").kind).to eq(:sequence)
+    end
+
+    # `factory: %i[customer premium]` names a factory and then traits to apply.
+    it "takes the factory name from an array, where the rest are traits" do
+      expect(widget.attribute("author").factory).to eq(:customer)
+      expect(widget.attribute("author").kind).to eq(:association)
+    end
+
+    it "still reads the ordinary attributes beside them" do
+      expect(widget.attribute("name").kind).to eq(:block)
+    end
+  end
+
   describe "a modern factory_bot suite" do
     subject(:idx) { index("basic_app") }
 
     it "finds every factory, including nested ones, in declaration order" do
       expect(idx.factories.map(&:name)).to eq(
         %i[
-          comparison customer premium_customer product premium_product report_stub
-          invoice paid_invoice discounted_invoice line_item
+          comparison widget customer premium_customer product premium_product
+          report_stub invoice paid_invoice discounted_invoice line_item
         ]
       )
     end
