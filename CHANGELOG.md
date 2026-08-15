@@ -36,6 +36,13 @@ and detection re-runs anyway.
 - `--app-env` is repeatable (`--app-env A=1 --app-env B=2`) instead of an array
   option, so the target can appear anywhere on the line. As an array option it
   silently swallowed the positional target unless that came first.
+
+  **The 0.1.0 form keeps working.** `--app-env A=1 B=2 C=3` was what 0.1.0
+  documented, and changing the option type would have silently reinterpreted every
+  existing invocation rather than failing on it. Trailing `KEY=VALUE` pairs are
+  still collected, the target is whichever argument is not a pair, and using the old
+  form prints a note suggesting the new one. Nothing anyone scripted against 0.1.0
+  needs to change.
 - **A directory pins everything under it.** Refusals are reported and the run
   continues, since one target that takes a block should not end a run over forty.
   The summary separates what was pinned, what was skipped and why, and what failed
@@ -47,6 +54,13 @@ Default output is the target, the stable count, what was pinned, the three verif
 results and the report path. The plan id, compared fields and per-case detail move
 behind `--verbose`. `pin` leads the command list, and `plan` and `capture` are
 labelled diagnostics.
+
+### Compatibility
+
+Nothing from 0.1.0 breaks. Both `--app-env` forms are accepted, `FILE#METHOD` still
+works alongside the new bare-file shorthand, every flag keeps its name and meaning,
+and `.pinspec.yml` is optional - an application without one behaves exactly as it
+did, except that its Ruby is now found automatically.
 
 ### Fixed
 

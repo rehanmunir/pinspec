@@ -200,18 +200,6 @@ RSpec.describe "pinspec CLI" do
 
     # The specific footgun: as an array option, --app-env consumed every following
     # word including the target. Repeatable takes one pair per flag instead.
-    it "collects a repeated --app-env into a hash without eating the target" do
-      cli = Pinspec::CLI.new([], { "app-env" => ["GEM_HOME=/gems", "LANG=C"] })
-
-      expect(cli.send(:app_env)).to eq("GEM_HOME" => "/gems", "LANG" => "C")
-    end
-
-    it "handles a value containing an equals sign" do
-      cli = Pinspec::CLI.new([], { "app-env" => ["PATH=/a=b:/c"] })
-
-      expect(cli.send(:app_env)).to eq("PATH" => "/a=b:/c")
-    end
-
     it "accepts the target before the flags" do
       root = app_dir("basic_app")
       stdout, _stderr, status = run_cli(
@@ -231,6 +219,93 @@ RSpec.describe "pinspec CLI" do
       expect(status.exitstatus).to eq(0)
       expect(stdout).to include("InvoiceCalculator#call")
     end
+
+    it "collects a repeated --app-env into a hash without eating the target" do
+      cli = Pinspec::CLI.new([], { "app-env" => ["GEM_HOME=/gems", "LANG=C"] })
+
+      expect(cli.send(:app_env)).to eq("GEM_HOME" => "/gems", "LANG" => "C")
+    end
+
+    it "handles a value containing an equals sign" do
+      cli = Pinspec::CLI.new([], { "app-env" => ["PATH=/a=b:/c"] })
+
+      expect(cli.send(:app_env)).to eq("PATH" => "/a=b:/c")
+    end
+  end
+
+  # 0.1.0 documented `--app-env A=1 B=2 C=3`, because the option was a Thor array.
+  # Making it repeatable fixed the option swallowing the target, but it would also
+  # have silently reinterpreted every existing invocation - the extra pairs would
+  # arrive as positional arguments.
+  describe "the 0.1.0 --app-env form" do
+    def cli(app_env: nil)
+      Pinspec::CLI.new([], app_env ? { "app-env" => app_env } : {})
+    end
+
+    def target_from(instance, *args)
+      instance.send(:target_from, args)
+    end
+
+    it "still understands trailing KEY=VALUE pairs" do
+      instance = cli
+      allow(instance).to receive(:warn)
+
+      expect(target_from(instance, "app/services/foo.rb", "A=1", "B=2")).to eq("app/services/foo.rb")
+      expect(instance.send(:app_env)).to eq("A" => "1", "B" => "2")
+    end
+
+    it "finds the target wherever it sits among them" do
+      instance = cli
+      allow(instance).to receive(:warn)
+
+      expect(target_from(instance, "A=1", "B=2", "app/services/foo.rb")).to eq("app/services/foo.rb")
+    end
+
+    it "combines both forms, with the repeatable one winning a conflict" do
+      instance = cli(app_env: ["A=new"])
+      allow(instance).to receive(:warn)
+      target_from(instance, "foo.rb", "A=old", "B=2")
+
+      expect(instance.send(:app_env)).to eq("A" => "new", "B" => "2")
+    end
+
+    it "says the form is old without failing on it" do
+      instance = cli
+      expect(instance).to receive(:warn).with(/0\.1\.0 form and still works/)
+
+      target_from(instance, "foo.rb", "A=1")
+    end
+
+    it "stays quiet for the current form" do
+      instance = cli(app_env: ["A=1"])
+      expect(instance).not_to receive(:warn)
+
+      target_from(instance, "foo.rb")
+    end
+
+    it "refuses when there is no target at all" do
+      instance = cli
+      allow(instance).to receive(:warn)
+
+      expect { target_from(instance, "A=1", "B=2") }
+        .to raise_error(Pinspec::TargetNotFound, /no target given/)
+    end
+
+    it "refuses two targets rather than silently pinning one" do
+      instance = cli
+
+      expect { target_from(instance, "a.rb", "b.rb") }
+        .to raise_error(Pinspec::AmbiguousTarget, /more than one target/)
+    end
+
+    # A path is not a KEY=VALUE pair even when it contains an equals sign, because
+    # the pair form requires an identifier before it.
+    it "does not mistake a path containing an equals sign for a pair" do
+      instance = cli
+
+      expect(target_from(instance, "app/services/a=b.rb")).to eq("app/services/a=b.rb")
+    end
+
   end
 
   describe "pin" do

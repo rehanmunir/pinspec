@@ -91,8 +91,9 @@ Pinning a directory keeps going when a target is refused, and prints one summary
 
 Useful flags: `--cases N`, `--boots N`, `--sample` (read real rows from your
 development database), `--no-redact`, `--force`, `--verbose`, and `--app-env KEY=VALUE`
-(repeatable) for the rare case where the runtime cannot be detected. Anything you
-find yourself repeating belongs in `.pinspec.yml`.
+for the rare case where the runtime cannot be detected. `--app-env` is repeatable;
+the older `--app-env A=1 B=2` form is still accepted. Anything you find yourself
+repeating belongs in `.pinspec.yml`.
 
 ## Verification
 

@@ -122,8 +122,9 @@ module Pinspec
                            desc: "read real rows through a generated read-only script in the app"
     method_option :"no-redact", type: :boolean, default: false,
                                desc: "do NOT rewrite personal data in sampled rows (they land in a committed file)"
-    def capture(target)
+    def capture(*args)
       guarded do
+        target = target_from(args)
         file, method = Analyzer::TargetParser.split_target(target)
 
         result = Runner::Capture.new(
@@ -160,8 +161,9 @@ module Pinspec
                            desc: "read real rows through a generated read-only script in the app"
     method_option :"no-redact", type: :boolean, default: false,
                                desc: "do NOT rewrite personal data in sampled rows (they land in a committed file)"
-    def pin(target)
+    def pin(*args)
       guarded do
+        target = target_from(args)
         refuse_unbuilt_backend!
         warn_about_redaction!
 
@@ -255,8 +257,9 @@ module Pinspec
                                    desc: "run the app's suite in its own runtime (for apps on Ruby < 3.4)"
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime"
-    def validate(target)
+    def validate(*args)
       guarded do
+        target = target_from(args)
         file, method = Analyzer::TargetParser.split_target(target)
 
         capture = Runner::Capture.new(
@@ -306,13 +309,48 @@ module Pinspec
 
     private
 
+    # In 0.1.0 --app-env was a Thor array option, so `--app-env A=1 B=2 C=3` was the
+    # documented way to pass several. Making it repeatable fixed the option
+    # swallowing the target, but it would also have silently reinterpreted every
+    # existing invocation - the extra pairs would land here as positionals. So they
+    # are still understood, and the target is whichever positional is not a
+    # KEY=VALUE pair, wherever it sits on the line.
+    LEGACY_ENV_PAIR = /\A[A-Za-z_][A-Za-z0-9_]*=/
+
+    def target_from(args)
+      targets, pairs = args.partition { |arg| !arg.match?(LEGACY_ENV_PAIR) }
+      @legacy_env = pairs
+
+      if targets.empty?
+        raise TargetNotFound,
+              "no target given. Pass a file, a FILE#METHOD, or a directory: " \
+              "pinspec pin app/services/invoice_calculator.rb"
+      end
+
+      if targets.size > 1
+        raise AmbiguousTarget,
+              "more than one target given (#{targets.join(', ')}). pinspec pins one " \
+              "file, one FILE#METHOD, or one directory per run."
+      end
+
+      warn_about_legacy_env unless pairs.empty?
+      targets.first
+    end
+
+    def warn_about_legacy_env
+      warn "pinspec: `--app-env A=1 B=2` is the 0.1.0 form and still works. " \
+           "Prefer `--app-env A=1 --app-env B=2`, or record it once with `pinspec init`."
+    end
+
     def config
       @config ||= Config.load(options[:app] || ".")
     end
 
     # File first, then anything typed on the command line, so a flag always wins.
     def app_env
-      typed = Array(options[:"app-env"]).each_with_object({}) do |pair, out|
+      pairs = Array(@legacy_env) + Array(options[:"app-env"])
+
+      typed = pairs.each_with_object({}) do |pair, out|
         key, value = pair.split("=", 2)
         out[key] = value.to_s
       end
