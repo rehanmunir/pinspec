@@ -49,7 +49,8 @@ module Pinspec
     :takes_block,
     :source_range,
     :referenced_constants,
-    :clock_sites
+    :clock_sites,
+    :construction_source
   ) do
     def singleton?
       construction_kind == :class_method

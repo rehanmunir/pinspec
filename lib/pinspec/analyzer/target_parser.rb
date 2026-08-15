@@ -76,7 +76,31 @@ module Pinspec
         end
       end
 
-      def initialize(file_path, method_name)
+      class << self
+        # Keyed by application root, because a batch run builds one parser per file
+        # and re-globbing the application for each would be quadratic.
+        def application_sources_for(root)
+          @application_sources ||= {}
+          @application_sources[root] ||= begin
+            dirs = %w[app lib].map { |d| File.join(root, d) }.select { |d| File.directory?(d) }
+            dirs.flat_map { |dir| Dir.glob(File.join(dir, "**", "*.rb")) }.sort
+          end
+        end
+
+        def application_scope_cache(root)
+          @application_scopes ||= {}
+          @application_scopes[root] ||= {}
+        end
+
+        # Tests and long-lived processes need a way back to a clean slate.
+        def reset_application_cache!
+          @application_sources = {}
+          @application_scopes = {}
+        end
+      end
+
+      def initialize(file_path, method_name, app_root: nil)
+        @app_root   = app_root
         @file_path  = file_path
         @descriptor = parse_descriptor(method_name)
       end
@@ -113,7 +137,8 @@ module Pinspec
           takes_block:          false,
           source_range:         [mdef.node.location.start_line, mdef.node.location.end_line],
           referenced_constants: referenced_constants(scan),
-          clock_sites:          clock_sites(scan)
+          clock_sites:          clock_sites(scan),
+          construction_source:  @construction_source || :own
         )
       end
 
@@ -409,33 +434,60 @@ module Pinspec
         inherited_construction(scope)
       end
 
+      # A class with no #initialize is not an unreadable constructor - it is the
+      # default one. The commonest shape in real applications is a service that
+      # inherits behaviour and takes its dependencies as method arguments:
+      #
+      #   class FavouriteService < BaseService
+      #     def call(account, status)
+      #
+      # Refusing that cost 88% of one real codebase's service directory. So the
+      # superclass chain is followed through the application, and only a constructor
+      # that EXISTS and cannot be read is refused.
+      MAX_ANCESTOR_HOPS = 4
+
       def inherited_construction(scope)
         sup = scope.superclass_slice
         return [:new, []] if sup.nil? || INERT_BASES.include?(sup)
 
-        parent = resolve_scope_relative(sup, scope)
-        unless parent
-          raise UnresolvableSetup.new(
-            :opaque_constructor,
-            "#{scope.name} inherits from #{sup}, which is not defined in " \
-            "#{@file_path}, and defines no #initialize of its own, so its " \
-            "constructor signature can't be read statically. Give #{scope.name} " \
-            "an explicit #initialize, or pin a class-method entry point."
-          )
+        params = ancestor_initializer_params(sup, scope)
+        return params if params
+
+        # Nothing in the chain defines one, so `new` takes no arguments. When the
+        # chain left the application the assumption is unverified, and says so.
+        @construction_source = @left_application ? :assumed : :inherited
+        [:new, []]
+      end
+
+      # Walks up through the application. Returns [:new, params] when an ancestor
+      # defines #initialize, or nil when none does.
+      def ancestor_initializer_params(name, scope)
+        seen = []
+        current = name
+        hops = 0
+
+        while current && hops < MAX_ANCESTOR_HOPS
+          break if INERT_BASES.include?(current) || seen.include?(current)
+
+          seen << current
+          hops += 1
+
+          parent = resolve_scope_relative(current, scope) || scope_from_application(current)
+          if parent.nil?
+            @left_application = true
+            return nil
+          end
+
+          init = find_initialize(parent.name) || initializer_in(parent)
+          if init
+            @construction_source = :inherited
+            return [:new, params_of(init)]
+          end
+
+          current = parent.superclass_slice
         end
 
-        parent_init = find_initialize(parent.name)
-        return [:new, params_of(parent_init)] if parent_init
-
-        parent_sup = parent.superclass_slice
-        return [:new, []] if parent_sup.nil? || INERT_BASES.include?(parent_sup)
-
-        raise UnresolvableSetup.new(
-          :opaque_constructor,
-          "#{scope.name} < #{parent.name} < #{parent_sup}: neither #{scope.name} " \
-          "nor #{parent.name} defines #initialize, and #{parent_sup} is outside " \
-          "#{@file_path}. pinspec resolves one level up only."
-        )
+        nil
       end
 
       def guard_opaque_initialize!(scope, init)
@@ -558,6 +610,110 @@ module Pinspec
         @defs.find do |d|
           d.scope_name == scope_name && d.name == :initialize && !d.singleton
         end&.node
+      end
+
+      # The superclass usually lives in another file of the same application. Finding
+      # it is a search for `class <Name>` under app/ and lib/, parsed with Prism so a
+      # name inside a comment or a string cannot match.
+      def scope_from_application(name)
+        return nil if application_root.nil?
+
+        cache = self.class.application_scope_cache(application_root)
+        return cache[name] if cache.key?(name)
+
+        cache[name] = find_scope_in_application(name)
+      end
+
+      def find_scope_in_application(name)
+        demodulized = name.split("::").last
+        pattern = /^\s*class\s+(?:[\w:]+::)?#{Regexp.escape(demodulized)}\b/
+
+        application_sources.each do |path|
+          source = Source.read(path)
+          next unless source.match?(pattern)
+
+          result = Prism.parse(source)
+          next unless result.success?
+
+          found = scope_named(result.value, name, demodulized)
+          return found if found
+        end
+
+        nil
+      end
+
+      # Only the files an application owns. A gem's base class is deliberately out of
+      # reach: pinspec would be reading code the application cannot change.
+      def application_sources
+        self.class.application_sources_for(application_root)
+      end
+
+      def application_root
+        return @application_root if defined?(@application_root)
+
+        @application_root = @app_root || infer_application_root
+      end
+
+      # Walk up from the target until something that marks a Rails root appears.
+      def infer_application_root
+        dir = File.dirname(File.expand_path(@file_path))
+
+        while dir != "/" && dir != File.dirname(dir)
+          return dir if File.file?(File.join(dir, "Gemfile")) ||
+                        File.directory?(File.join(dir, "db")) ||
+                        File.file?(File.join(dir, "config", "application.rb"))
+
+          dir = File.dirname(dir)
+        end
+
+        nil
+      end
+
+      def scope_named(root, qualified, demodulized)
+        found = nil
+
+        walk = lambda do |node, prefix|
+          return if found || node.nil?
+
+          if node.is_a?(Prism::ClassNode)
+            name = [prefix, node.constant_path.slice].compact.reject(&:empty?).join("::")
+            if name == qualified || node.constant_path.slice == qualified ||
+               node.constant_path.slice == demodulized
+              found = Scope.new(name: name, node: node, kind: :class,
+                                superclass_slice: node.superclass&.slice,
+                                superclass_node: node.superclass, parent: nil)
+              return
+            end
+            prefix = name
+          elsif node.is_a?(Prism::ModuleNode)
+            prefix = [prefix, node.constant_path.slice].compact.reject(&:empty?).join("::")
+          end
+
+          node.compact_child_nodes.each { |child| walk.call(child, prefix) }
+        end
+
+        walk.call(root, nil)
+        found
+      end
+
+      # An #initialize defined directly in a scope found elsewhere in the application.
+      def initializer_in(scope)
+        return nil unless scope.node.is_a?(Prism::ClassNode)
+
+        found = nil
+        walk = lambda do |node|
+          return if found || node.nil?
+
+          if node.is_a?(Prism::DefNode) && node.name == :initialize && node.receiver.nil?
+            found = node
+            return
+          end
+
+          node.compact_child_nodes.each { |child| walk.call(child) }
+        end
+
+        walk.call(scope.node.body)
+        found
       end
 
       def resolve_scope_relative(name, scope)

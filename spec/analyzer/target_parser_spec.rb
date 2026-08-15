@@ -174,9 +174,22 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
         }
     end
 
-    it "refuses a class with no initialize and an out-of-file superclass" do
-      expect { parse("opaque_service.rb", "NoCtorService#call") }
-        .to raise_error(Pinspec::UnresolvableSetup, /inherits from ApplicationService/)
+    # A class with no #initialize does not have an unreadable constructor - it has
+    # the default one. The commonest shape in real applications is a service that
+    # inherits behaviour and takes its dependencies as method arguments, and
+    # refusing it cost 88% of one real codebase's service directory.
+    it "constructs a class with no initialize, noting that the ancestor was unreadable" do
+      profile = parse("opaque_service.rb", "NoCtorService#call")
+
+      expect(profile.construction_kind).to eq(:new)
+      expect(profile.initializer_params).to be_empty
+      expect(profile.construction_source).to eq(:assumed)
+    end
+
+    # The refusal that must survive: an #initialize that EXISTS and cannot be read.
+    it "still refuses when a constructor exists but resolves its own dependencies" do
+      expect { parse("opaque_service.rb", "ContainerService#call") }
+        .to raise_error(Pinspec::UnresolvableSetup) { |e| expect(e.reason).to eq(:opaque_constructor) }
     end
 
     it "accepts a dependency injected as a parameter default, which pinspec overrides" do

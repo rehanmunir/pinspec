@@ -12,6 +12,10 @@ RSpec.describe "an application built on an engine" do
     Pinspec::Analyzer::TargetParser.parse(File.join(app, "app/services", file), method)
   end
 
+  def profile_for_app
+    profile
+  end
+
   def plan_for(file)
     Pinspec::Setup::ContextBuilder.build(target: target(file), profile: profile)
   end
@@ -60,6 +64,53 @@ RSpec.describe "an application built on an engine" do
     it "builds no user for a target that cannot observe one" do
       expect(plan.steps_of(:stub_current)).to be_empty
       expect(plan.notes.map { |note| note[:kind] }).to include(:current_user_not_built)
+    end
+  end
+
+  # M-16. A class with no #initialize has the DEFAULT constructor, not an unreadable
+  # one. Measured across five public Rails codebases, refusing this shape cost 88% of
+  # mastodon's service directory and 100% of publishing-api's inheritance cases.
+  describe "a constructor that lives in another file, or nowhere" do
+    before { Pinspec::Analyzer::TargetParser.reset_application_cache! }
+
+    it "reads a superclass constructor out of the file that defines it" do
+      profile = target("inheriting_summary.rb")
+
+      expect(profile.construction_kind).to eq(:new)
+      expect(profile.initializer_params.map(&:name)).to eq(%i[order actor])
+      expect(profile.construction_source).to eq(:inherited)
+    end
+
+    # The mastodon shape: no constructor anywhere, dependencies as method arguments.
+    it "assumes a zero-argument constructor when no ancestor defines one" do
+      profile = target("argument_taking_service.rb")
+
+      expect(profile.construction_kind).to eq(:new)
+      expect(profile.initializer_params).to be_empty
+      expect(profile.params.map(&:name)).to eq([:order])
+    end
+
+    # The assumption is unverified once the chain leaves the application, and says so
+    # rather than presenting a guess as a reading.
+    it "distinguishes a constructor it read from one it assumed" do
+      expect(target("inheriting_summary.rb").construction_source).to eq(:inherited)
+      expect(target("argument_taking_service.rb").construction_source).to eq(:assumed)
+      expect(target("order_summary.rb").construction_source).to eq(:own)
+    end
+
+    it "still plans a world for the inherited constructor's parameters" do
+      profile = target("inheriting_summary.rb")
+      plan = Pinspec::Setup::ContextBuilder.build(target: profile, profile: profile_for_app)
+
+      expect(plan.bindings[:order]).to eq("shop_order_1")
+    end
+
+    it "does not read a class the application does not own" do
+      # BaseHandler is referenced but defined nowhere under app/ or lib/, so it is
+      # out of reach by design - pinspec will not read a gem's source.
+      expect(Pinspec::Analyzer::TargetParser.new(
+        File.join(app, "app/services/argument_taking_service.rb"), "call"
+      ).send(:scope_from_application, "BaseHandler")).to be_nil
     end
   end
 
