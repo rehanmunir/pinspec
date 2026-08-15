@@ -4,8 +4,23 @@ require "thor"
 
 module Pinspec
   class CLI < Thor
+    class_option :verbose, type: :boolean, default: false, aliases: "-V",
+                           desc: "show the plan id, compared fields and per-case detail"
+
     def self.exit_on_failure?
       true
+    end
+
+    ORDER = %w[pin init analyze validate report plan capture version].freeze
+
+    # Thor sorts the command list alphabetically after building it, which buries the
+    # one verb most people want between `init` and `plan`, and gives the two
+    # diagnostics equal billing with the product.
+    def self.sort_commands!(list)
+      list.sort_by! do |usage, _|
+        name = usage.to_s.split(/\s+/)[1].to_s
+        [ORDER.index(name) || ORDER.size, name]
+      end
     end
 
     desc "version", "Print the pinspec version"
@@ -15,7 +30,44 @@ module Pinspec
     end
     map %w[--version -v] => :version
 
-    desc "plan FILE#METHOD", "Resolve a target and print the SetupPlan that would build its world"
+    desc "init [APP_PATH]", "Write .pinspec.yml so later runs need no flags"
+    method_option :force, type: :boolean, default: false, desc: "overwrite an existing .pinspec.yml"
+    def init(app_path = ".")
+      guarded do
+        path = File.join(app_path, Config::FILENAME)
+
+        if File.file?(path) && !options[:force]
+          raise ConfigInvalid, "#{path} already exists. Pass --force to overwrite it."
+        end
+
+        runtime = Runner::Runtime.for(app_path)
+        profile = Analyzer::AppProfileReader.read(app_path)
+
+        # Deliberately NOT the detected environment. Writing the resolved PATH into a
+        # committed file bakes in one machine's layout and goes stale the moment the
+        # app changes Ruby - and detection re-runs on every invocation anyway. `env`
+        # is for what pinspec cannot work out: database credentials, feature flags.
+        File.write(path, Config.new(app_path, {
+                                      "cases" => Inputs::Corpus::DEFAULT_MAX_CASES,
+                                      "boots" => 2
+                                    }, path).to_yaml_document)
+
+        row "wrote", path
+        row "rails", profile.rails_version || "unknown"
+        row "ruby", runtime.ruby_version
+        row "runtime", runtime.detected? ? "#{runtime.manager}, detected on each run" : "this shell's Ruby"
+        puts
+
+        if runtime.note
+          puts runtime.note
+          puts
+        end
+
+        puts "Now: pinspec pin app/services/your_service.rb"
+      end
+    end
+
+    desc "plan TARGET", "Diagnostic: the world pinspec would build, without running anything"
     method_option :app, type: :string, default: ".", desc: "target app root"
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES,
                           desc: "max input cases per method"
@@ -33,7 +85,7 @@ module Pinspec
           target:    target_profile,
           plan:      setup_plan,
           schema:    app_profile.schema,
-          max_cases: options[:cases]
+          max_cases: setting('cases', Inputs::Corpus::DEFAULT_MAX_CASES)
         )
 
         print_plan(setup_plan)
@@ -45,6 +97,7 @@ module Pinspec
     desc "analyze [APP_PATH]", "App profile: schema, factories, auth, tenancy, hazards"
     def analyze(app_path = ".")
       guarded do
+        Config.load(app_path)
         profile = Analyzer::AppProfileReader.read(app_path)
 
         print_app(profile)
@@ -56,14 +109,14 @@ module Pinspec
       end
     end
 
-    desc "capture FILE#METHOD", "Run the probe, write observations.json"
+    desc "capture TARGET", "Diagnostic: run the probe only, and write observations.json"
     method_option :app, type: :string, default: ".", desc: "target app root"
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES
     method_option :boots, type: :numeric, default: 2,
                           desc: "probe boots; 2 is the default because one process shares warm caches"
     method_option :"compare-sql", type: :boolean, default: false,
                                   desc: "include SQL fingerprints in the stability decision"
-    method_option :"app-env", type: :array, default: [], banner: "KEY=VALUE",
+    method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime (when it is not this shell's Ruby)"
     method_option :sample, type: :boolean, default: false,
                            desc: "read real rows through a generated read-only script in the app"
@@ -77,11 +130,11 @@ module Pinspec
           app_root:    options[:app],
           target:      file,
           method:      method,
-          max_cases:   options[:cases],
-          boots:       options[:boots],
-          compare_sql: options[:"compare-sql"],
+          max_cases:   setting('cases', Inputs::Corpus::DEFAULT_MAX_CASES),
+          boots:       setting('boots', 2),
+          compare_sql: setting('compare-sql', false),
           sandbox_env: app_env,
-          sample:      options[:sample],
+          sample:      setting('sample', false),
           redact:      !options[:"no-redact"]
         ).run
 
@@ -91,7 +144,7 @@ module Pinspec
       end
     end
 
-    desc "pin FILE#METHOD", "Plan + capture + emit + verify"
+    desc "pin TARGET", "Capture, emit and verify. TARGET is FILE, FILE#METHOD or a directory"
     method_option :app, type: :string, default: ".", desc: "target app root"
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES
     method_option :boots, type: :numeric, default: 2
@@ -101,7 +154,7 @@ module Pinspec
                          desc: "overwrite a pin file that has been hand-edited"
     method_option :snapshot, type: :string, default: "inline", enum: %w[inline insta approvals],
                              desc: "snapshot backend"
-    method_option :"app-env", type: :array, default: [], banner: "KEY=VALUE",
+    method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime (when it is not this shell's Ruby)"
     method_option :sample, type: :boolean, default: false,
                            desc: "read real rows through a generated read-only script in the app"
@@ -111,15 +164,40 @@ module Pinspec
       guarded do
         refuse_unbuilt_backend!
         warn_about_redaction!
+
+        return pin_directory(target) if File.directory?(target)
+
+        pin_one(target)
+      end
+    end
+
+    no_commands do
+      def pin_directory(path)
+        files = Batch.targets_in(path)
+        raise TargetNotFound, "no .rb files under #{path}" if files.empty?
+
+        puts "pinning #{files.size} file(s) under #{path}"
+        puts
+
+        report = Batch.new(files) { |file| pin_one(file, quiet: true) }.run
+
+        print_batch(report, path)
+
+        raise NothingStableToPin,
+              "nothing under #{path} could be pinned. Each refusal above says why." unless report.anything_pinned?
+      end
+
+      def pin_one(target, quiet: false)
         file, method = Analyzer::TargetParser.split_target(target)
 
         capture = Runner::Capture.new(
           app_root: options[:app], target: file, method: method,
-          max_cases: options[:cases], boots: options[:boots], sandbox_env: app_env,
-          sample: options[:sample], redact: !options[:"no-redact"]
+          max_cases: setting('cases', Inputs::Corpus::DEFAULT_MAX_CASES),
+          boots: setting('boots', 2), sandbox_env: app_env,
+          sample: setting('sample', false), redact: !options[:"no-redact"]
         ).run
 
-        print_capture(capture)
+        print_capture(capture) unless quiet
         raise NothingStableToPin, nothing_stable_message(capture.stability) if capture.stability.nothing_to_pin?
 
         written = Emit::SpecWriter.new(
@@ -129,19 +207,27 @@ module Pinspec
           force: options[:force]
         ).write!
 
-        puts
-        print_written(written)
+        unless quiet
+          puts
+          print_written(written)
+        end
 
-        return if options[:"skip-verify"]
+        if options[:"skip-verify"]
+          return Batch::Outcome.new(file: file, target: capture.target.qualified_name, status: :pinned,
+                                    detail: "not verified", pinned: written.pinned_cases.size,
+                                    spec_path: written.spec_path)
+        end
 
         outcomes = Verify::Verifier.new(
           app_root: options[:app], spec_path: written.spec_path,
-          level: options[:"verify-level"].to_sym, env: app_env,
+          level: setting("verify-level", "full").to_sym, env: app_env,
           captured_tz: capture.plan.env_fingerprint[:tz]
         ).verify
 
-        puts
-        print_verification(outcomes)
+        unless quiet
+          puts
+          print_verification(outcomes)
+        end
 
         report_path = Report::Summary.new(
           app_root: options[:app], profile: Analyzer::AppProfileReader.read(options[:app]),
@@ -149,19 +235,25 @@ module Pinspec
           stability: capture.stability, written: written, outcomes: outcomes
         ).write!
 
-        puts
-        row "report", report_path
+        unless quiet
+          puts
+          row "report", report_path
+        end
 
         raise VerifyFailed, verify_failed_message(outcomes) unless outcomes.all?(&:green?)
+
+        Batch::Outcome.new(file: file, target: capture.target.qualified_name, status: :pinned,
+                           detail: outcomes.map(&:config).join(", "), pinned: written.pinned_cases.size,
+                           spec_path: written.spec_path)
       end
     end
 
-    desc "validate FILE#METHOD", "Mutation-score a pin, one aspect at a time"
+    desc "validate TARGET", "Mutation-score a pin, one aspect at a time"
     method_option :app, type: :string, default: ".", desc: "target app root"
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES
     method_option :"test-command", type: :string,
                                    desc: "run the app's suite in its own runtime (for apps on Ruby < 3.4)"
-    method_option :"app-env", type: :array, default: [], banner: "KEY=VALUE",
+    method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime"
     def validate(target)
       guarded do
@@ -169,7 +261,7 @@ module Pinspec
 
         capture = Runner::Capture.new(
           app_root: options[:app], target: file, method: method,
-          max_cases: options[:cases], sandbox_env: app_env
+          max_cases: setting('cases', Inputs::Corpus::DEFAULT_MAX_CASES), sandbox_env: app_env
         ).run
 
         raise NothingStableToPin, nothing_stable_message(capture.stability) if capture.stability.nothing_to_pin?
@@ -180,7 +272,7 @@ module Pinspec
           app_root: options[:app], target: capture.target, plan: capture.plan,
           corpus: capture.corpus, stability: capture.stability,
           fk_map: profile.schema.fk_map,
-          env: app_env, test_command: options[:"test-command"]
+          env: app_env, test_command: setting("test-command", nil)
         ).run
 
         print_scores(report)
@@ -214,11 +306,22 @@ module Pinspec
 
     private
 
+    def config
+      @config ||= Config.load(options[:app] || ".")
+    end
+
+    # File first, then anything typed on the command line, so a flag always wins.
     def app_env
-      Array(options[:"app-env"]).each_with_object({}) do |pair, out|
+      typed = Array(options[:"app-env"]).each_with_object({}) do |pair, out|
         key, value = pair.split("=", 2)
         out[key] = value.to_s
       end
+
+      config.env.merge(typed)
+    end
+
+    def setting(key, default)
+      config.value(key, options[key.to_sym], default)
     end
 
     def refuse_unbuilt_backend!
@@ -300,17 +403,18 @@ module Pinspec
       stability = result.stability
 
       puts "capture  #{result.target.qualified_name}"
-      row "plan", "#{result.plan.plan_id} (isolation #{result.plan.isolation})"
-      row "runs", "#{stability.runs} boots"
-      row "cases", result.corpus.size
-      row "stable", "#{stability.stable.size} of #{result.corpus.size}"
-      row "compared", stability.compared_fields.join(", ")
-      row "observations", result.output_path
+      row "stable", "#{stability.stable.size} of #{result.corpus.size} cases, over #{stability.runs} boots"
 
-      unless stability.stable.empty?
-        puts
-        puts "  stable, and therefore pinnable:"
-        stability.stable.each { |verdict| puts "    #{verdict.case_id}  #{summarize(verdict.observation)}" }
+      if verbose?
+        row "plan", "#{result.plan.plan_id} (isolation #{result.plan.isolation})"
+        row "compared", stability.compared_fields.join(", ")
+        row "observations", result.output_path
+
+        unless stability.stable.empty?
+          puts
+          puts "  stable, and therefore pinnable:"
+          stability.stable.each { |verdict| puts "    #{verdict.case_id}  #{summarize(verdict.observation)}" }
+        end
       end
 
       return if stability.unstable.empty?
@@ -346,10 +450,11 @@ module Pinspec
 
     def print_written(written)
       puts "emitted  #{written.spec_path}"
-      written.support_paths.each { |path| row "support", path }
-      row "pinned", written.pinned_cases.join(", ")
-      row "aspects", written.aspects.reject { |_, count| count.zero? }
-                            .map { |aspect, count| "#{count} #{aspect}" }.join(", ")
+      row "pinned", "#{written.pinned_cases.size} case(s): " +
+                    written.aspects.reject { |_, count| count.zero? }
+                           .map { |aspect, count| "#{count} #{aspect}" }.join(", ")
+
+      written.support_paths.each { |path| row "support", path } if verbose?
     end
 
     def print_verification(outcomes)
@@ -578,8 +683,32 @@ module Pinspec
       values.empty? ? "(none)" : values.join(", ")
     end
 
+    def verbose?
+      options[:verbose]
+    end
+
     def row(label, value)
       puts format("  %-14s %s", label, value)
+    end
+
+    def print_batch(report, path)
+      width = report.outcomes.map { |o| File.basename(o.file).length }.max.to_i
+
+      report.outcomes.each do |outcome|
+        name = File.basename(outcome.file).ljust(width)
+
+        puts case outcome.status
+             when :pinned  then format("  pinned   %s  %d case(s), verified", name, outcome.pinned)
+             when :refused then format("  skipped  %s  %s", name, outcome.detail)
+             else               format("  FAILED   %s  %s", name, outcome.detail)
+             end
+      end
+
+      puts
+      row "pinned", "#{report.pinned.size} of #{report.outcomes.size}"
+      row "skipped", report.refused.size if report.refused.any?
+      row "failed", report.failed.size if report.failed.any?
+      row "specs", File.join(options[:app], Emit::SpecWriter::SPEC_DIR) if report.anything_pinned?
     end
   end
 end

@@ -8,23 +8,27 @@ code does today, and then verifies that file passes in your app's own test
 environment.
 
 ```bash
-pinspec pin app/services/invoice_calculator.rb#call --app .
+cd myapp
+pinspec pin app/services/invoice_calculator.rb
 ```
 
 ```
 capture  InvoiceCalculator#call
-  runs           2 boots
-  stable         2 of 2
+  stable         3 of 3 cases, over 2 boots
 
 emitted  spec/characterization/invoice_calculator_call_spec.rb
-  pinned         c001, c002
-  aspects        2 return, 2 jobs
+  pinned         3 case(s): 3 return, 3 jobs
 
 verify
-  isolated       green (4 examples)
-  hostile        green (4 examples)
-  neighbored     green (4 examples)
+  isolated       green (6 examples)
+  hostile        green (6 examples)
+  neighbored     green (6 examples)
+
+  report         tmp/pinspec/report.md
 ```
+
+`--verbose` adds the plan id, the fields compared for stability, and a line per
+pinned case.
 
 A pin freezes current behaviour. It is not a claim that the behaviour is correct —
 bugs get pinned on purpose, so a refactor cannot change them silently.
@@ -39,21 +43,56 @@ Ruby >= 3.2. Rails >= 6.0 in the target app. PostgreSQL, MySQL and SQLite all wo
 pinspec adds no database gem, because everything that touches your data runs inside
 your app through `rails runner`.
 
+Your app almost certainly runs on a different Ruby than pinspec does. That is fine
+and needs no configuration: pinspec reads your app's `.ruby-version` or
+`.tool-versions` and finds that Ruby under rvm, rbenv, asdf, mise or chruby on each
+run. If it cannot, it tells you the exact `--app-env` line to pass.
+
+For anything pinspec cannot work out for itself — database credentials, a feature
+flag — record it once:
+
+```bash
+pinspec init
+```
+
+That writes `.pinspec.yml`, which holds the flags you would otherwise repeat. A flag
+on the command line always wins.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pinspec analyze [APP]` | App profile, schema, factories and hazards. Reads files only — no boot, no database. |
-| `pinspec plan FILE#METHOD --app PATH` | The world it would build, and the arguments it would pass. Still no execution. |
-| `pinspec capture FILE#METHOD --app PATH` | Runs the probe in your app, writes `observations.json`. |
-| `pinspec pin FILE#METHOD --app PATH` | Capture, emit the spec, verify it. |
-| `pinspec validate FILE#METHOD --app PATH` | Mutation-scores the pin, one aspect at a time. Needs Ruby >= 3.4 and `mutineer`. |
-| `pinspec report --app PATH` | Prints the last run's markdown report. |
+| `pinspec pin TARGET` | Capture, emit the spec, verify it. This is the one you want. |
+| `pinspec init` | Write `.pinspec.yml` so later runs need no flags. |
+| `pinspec analyze` | App profile, schema, factories and hazards. Reads files only — no boot, no database. |
+| `pinspec validate TARGET` | Mutation-scores the pin, one aspect at a time. Needs Ruby >= 3.4 and `mutineer`. |
+| `pinspec report` | Prints the last run's markdown report. |
+| `pinspec plan TARGET` | Diagnostic: the world it would build, without running anything. |
+| `pinspec capture TARGET` | Diagnostic: run the probe only, and write `observations.json`. |
+
+`TARGET` is a file, a `FILE#METHOD`, or a directory:
+
+```bash
+pinspec pin app/services/invoice_calculator.rb          # assumes #call
+pinspec pin app/services/invoice_calculator.rb#total    # a different method
+pinspec pin app/services                                # everything under it
+```
+
+Pinning a directory keeps going when a target is refused, and prints one summary:
+
+```
+  pinned   invoice_calculator.rb  2 case(s), verified
+  skipped  report_builder.rb      BlockRequired
+  pinned   status_reporter.rb     2 case(s), verified
+
+  pinned         2 of 3
+  skipped        1
+```
 
 Useful flags: `--cases N`, `--boots N`, `--sample` (read real rows from your
-development database), `--no-redact`, `--force`, `--app-env KEY=VALUE`.
-
-The target comes first. `--app-env` is an array option and will swallow it otherwise.
+development database), `--no-redact`, `--force`, `--verbose`, and `--app-env KEY=VALUE`
+(repeatable) for the rare case where the runtime cannot be detected. Anything you
+find yourself repeating belongs in `.pinspec.yml`.
 
 ## Verification
 
@@ -112,6 +151,7 @@ sources are hashed, so a committed spec does not map back to production rows.
 | `db/structure.sql` instead of `db/schema.rb` | `SchemaFormatUnsupported` | 6 |
 | Rails below 6.0 | `UnsupportedRailsVersion` | 10 |
 | no case was stable across boots | `NothingStableToPin` | 8 |
+| `.pinspec.yml` has an unknown key or is not valid YAML | `ConfigInvalid` | 13 |
 
 It will not pass `nil` for a model it could not build: the target would raise on nil,
 and that error would be pinned as though your application produced it.

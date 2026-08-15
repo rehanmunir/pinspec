@@ -79,6 +79,10 @@ module Pinspec
     self.exit_code = 11
   end
 
+  class ConfigInvalid < Error
+    self.exit_code = 13
+  end
+
   class PinspecInternalError < Error
     self.exit_code = 12
   end

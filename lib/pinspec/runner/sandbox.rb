@@ -8,7 +8,17 @@ module Pinspec
   module Runner
     class Sandbox
       PROBE_DIR = "tmp/pinspec"
-      PROBE_FILE = "probe.rb"
+
+      # One probe file per run. A fixed path means two pinspec runs against the same
+      # application overwrite each other's probe between boots, and the result is not
+      # an error: the stability filter compares one target's observations against
+      # another's and reports the target as unstable, or crashes looking up a case id
+      # that belongs to a different corpus. Silent and wrong, which is worse than a
+      # lock. `pinspec pin app/services` is sequential, but a developer with two
+      # terminals or a CI that fans out is not.
+      def self.probe_filename(pid: Process.pid, object_id: nil)
+        "probe-#{pid}-#{object_id || rand(1 << 24)}.rb"
+      end
 
       DEFAULT_TIMEOUT = 600
 
@@ -18,18 +28,7 @@ module Pinspec
         "RAILS_ENV" => "test"
       }.freeze
 
-      SCRUBBED_ENV = {
-        "BUNDLE_GEMFILE" => nil,
-        "BUNDLE_PATH" => nil,
-        "BUNDLE_BIN_PATH" => nil,
-        "BUNDLE_APP_CONFIG" => nil,
-        "BUNDLER_VERSION" => nil,
-        "BUNDLER_SETUP" => nil,
-        "RUBYOPT" => nil,
-        "RUBYLIB" => nil,
-        "GEM_HOME" => nil,
-        "GEM_PATH" => nil
-      }.freeze
+      SCRUBBED_ENV = Runtime::BUNDLER_VARS.to_h { |name| [name, nil] }.freeze
 
       Result = Data.define(:run, :observations, :env, :plan_id, :stderr) do
         def observation(case_id)
@@ -46,7 +45,7 @@ module Pinspec
       end
 
       def probe_path
-        File.join(@app_root, PROBE_DIR, PROBE_FILE)
+        @probe_path ||= File.join(@app_root, PROBE_DIR, self.class.probe_filename(object_id: object_id))
       end
 
       def write_probe!
@@ -58,16 +57,24 @@ module Pinspec
       def capture(boots: 2)
         write_probe!
 
-        (1..boots).map do |run|
-          execute(run: run, seed: 40 + run)
-        end
+        results = (1..boots).map { |run| execute(run: run, seed: 40 + run) }
+
+        # Removed only on success. A probe left behind after a failure is the
+        # evidence; one left behind after every run just fills tmp/ with files a
+        # reader cannot tell apart.
+        FileUtils.rm_f(probe_path)
+        results
+      end
+
+      def runtime
+        @runtime ||= Runtime.for(@app_root)
       end
 
       private
 
       def execute(run:, seed:)
         command = runner_command
-        env = SCRUBBED_ENV
+        env = runtime.env
               .merge(FORCED_ENV)
               .merge("PINSPEC_SHUFFLE_SEED" => seed.to_s)
               .merge(@env)
@@ -77,6 +84,7 @@ module Pinspec
         unless status.success?
           raise ProbeFailure,
                 "the probe exited #{status.exitstatus} in #{@app_root}.\n" \
+                "#{runtime.note ? "#{runtime.note}\n\n" : ''}" \
                 "#{stderr.to_s.lines.last(15).join}"
         end
 
@@ -108,7 +116,7 @@ module Pinspec
       def runner_command
         return @runner if @runner
 
-        relative = File.join(PROBE_DIR, PROBE_FILE)
+        relative = File.join(PROBE_DIR, File.basename(probe_path))
 
         if File.file?(File.join(@app_root, "Gemfile"))
           ["bundle", "exec", "rails", "runner", relative]

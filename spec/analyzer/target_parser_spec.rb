@@ -1,6 +1,25 @@
 # frozen_string_literal: true
 
 RSpec.describe Pinspec::Analyzer::TargetParser do
+  describe ".split_target" do
+    it "splits FILE#METHOD" do
+      expect(described_class.split_target("app/services/foo.rb#call")).to eq(["app/services/foo.rb", "call"])
+    end
+
+    it "defaults a bare file to #call, which is what a service object almost always is" do
+      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", "call"])
+    end
+
+    it "keeps a qualified method" do
+      expect(described_class.split_target("app/services/foo.rb#Bar.call")).to eq(["app/services/foo.rb", "Bar.call"])
+    end
+
+    it "refuses something that is neither a ruby file nor a target" do
+      expect { described_class.split_target("app/services") }
+        .to raise_error(ArgumentError, /must be a Ruby file/)
+    end
+  end
+
   describe "the headline shape: constructor dependencies + a zero-argument #call" do
     subject(:profile) { parse("invoice_calculator.rb", "call") }
 
@@ -342,9 +361,13 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
         .to eq(["app/services/foo.rb", "call"])
     end
 
-    it "rejects a target with no method" do
-      expect { described_class.split_target("app/services/foo.rb") }
-        .to raise_error(ArgumentError, /FILE#METHOD/)
+    it "assumes #call for a bare ruby file" do
+      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", "call"])
+    end
+
+    it "rejects something that is neither a ruby file nor a target" do
+      expect { described_class.split_target("app/services") }
+        .to raise_error(ArgumentError, /must be a Ruby file/)
     end
 
     it "reports a missing file as TargetNotFound" do

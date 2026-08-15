@@ -90,9 +90,9 @@ module Pinspec
       end
 
       def environment
-        Runner::Sandbox::SCRUBBED_ENV
-          .merge("RAILS_ENV" => "test", "DISABLE_SPRING" => "1", "TZ" => @captured_tz)
-          .merge(@env)
+        Runner::Runtime.for(@app_root).env
+                       .merge("RAILS_ENV" => "test", "DISABLE_SPRING" => "1", "TZ" => @captured_tz)
+                       .merge(@env)
       end
 
       def parse(stdout)

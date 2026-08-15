@@ -60,14 +60,19 @@ module Pinspec
           new(file_path, method_name).parse
         end
 
+        DEFAULT_METHOD = "call"
+
         def split_target(target)
-          unless target.to_s.include?("#")
+          text = target.to_s
+          return text.split("#", 2) if text.include?("#")
+
+          unless text.end_with?(".rb")
             raise ArgumentError,
-                  "target must be FILE#METHOD (got #{target.inspect}); " \
-                  "e.g. app/services/invoice_calculator.rb#call"
+                  "target must be a Ruby file, optionally with #METHOD " \
+                  "(got #{target.inspect}); e.g. app/services/invoice_calculator.rb#call"
           end
 
-          target.split("#", 2)
+          [text, DEFAULT_METHOD]
         end
       end
 

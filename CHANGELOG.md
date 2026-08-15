@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.2.0 - 2026-08-15
+
+Ergonomics. 0.1.0 worked, but a run against a real application needed six lines of
+environment before it would start, and almost none of it was intent.
+
+### The app's Ruby is detected, not declared
+
+pinspec reads the target application's `.ruby-version` or `.tool-versions` and
+locates that Ruby under rvm, rbenv, asdf, mise or chruby on every run. Only
+bundler's variables are scrubbed from the child process now; `GEM_HOME` and
+`GEM_PATH` are left alone, which is what previously forced every invocation to hand
+the application's gemset back by hand. When the declared Ruby cannot be found,
+the failure names the version, the one in use, and the exact `--app-env` line to
+pass.
+
+A patch-level difference is treated as the same runtime: 3.4.2 and 3.4.6 run the
+same code, and relocating for it would fail on a machine that has only one.
+
+### `.pinspec.yml`
+
+`pinspec init` writes it. It holds the flags you would otherwise repeat - `cases`,
+`boots`, `sample`, `verify-level`, `test-command`, and an `env` mapping for what
+pinspec cannot work out, such as database credentials. A flag on the command line
+always wins. An unknown key is an error naming the key and listing the valid ones,
+rather than silence that reads as "the setting does not work".
+
+The detected runtime is deliberately **not** written to that file: recording one
+machine's `PATH` bakes in a layout that goes stale the moment the app changes Ruby,
+and detection re-runs anyway.
+
+### Targets
+
+- A bare file assumes `#call`: `pinspec pin app/services/invoice_calculator.rb`.
+- `--app-env` is repeatable (`--app-env A=1 --app-env B=2`) instead of an array
+  option, so the target can appear anywhere on the line. As an array option it
+  silently swallowed the positional target unless that came first.
+- **A directory pins everything under it.** Refusals are reported and the run
+  continues, since one target that takes a block should not end a run over forty.
+  The summary separates what was pinned, what was skipped and why, and what failed
+  verification. Exits non-zero when nothing pinned.
+
+### Output
+
+Default output is the target, the stable count, what was pinned, the three verify
+results and the report path. The plan id, compared fields and per-case detail move
+behind `--verbose`. `pin` leads the command list, and `plan` and `capture` are
+labelled diagnostics.
+
+### Fixed
+
+- **Two pinspec runs against the same application corrupted each other.** The probe
+  was written to a fixed `tmp/pinspec/probe.rb`, so a second run overwrote it between
+  the first run's two boots. The failure was silent rather than loud: the stability
+  filter compared one target's observations against another's and reported the target
+  as unstable, or crashed looking up a case id belonging to a different corpus. Each
+  run now writes its own probe, named after the process, and removes it on success -
+  keeping it after a failure, where it is the evidence. Found by running two captures
+  against one application at once.
+- Batch discovery matched its skip patterns against the absolute path, so an
+  application living anywhere under a directory named `spec` had every file skipped.
+  Patterns now match the path relative to the directory being pinned.
+- `analyze` did not read `.pinspec.yml`, so a typo in it stayed silent for the
+  command people run first.
+
 ## 0.1.0 - 2026-08-13
 
 First release.

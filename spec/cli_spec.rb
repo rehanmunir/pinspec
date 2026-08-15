@@ -180,6 +180,59 @@ RSpec.describe "pinspec CLI" do
     end
   end
 
+  describe "argument order" do
+    def app_dir(app)
+      File.join(ROOT, "spec", "fixtures", "apps", app)
+    end
+
+    # --app-env used to be a Thor array option, which swallowed the positional
+    # target unless it came first. That is a footgun, not a feature.
+    it "accepts the target after the flags" do
+      root = app_dir("basic_app")
+      stdout, _stderr, status = run_cli(
+        "plan", "--app", root, "--cases", "1",
+        File.join(root, "app/services/invoice_calculator.rb#call")
+      )
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("InvoiceCalculator#call")
+    end
+
+    # The specific footgun: as an array option, --app-env consumed every following
+    # word including the target. Repeatable takes one pair per flag instead.
+    it "collects a repeated --app-env into a hash without eating the target" do
+      cli = Pinspec::CLI.new([], { "app-env" => ["GEM_HOME=/gems", "LANG=C"] })
+
+      expect(cli.send(:app_env)).to eq("GEM_HOME" => "/gems", "LANG" => "C")
+    end
+
+    it "handles a value containing an equals sign" do
+      cli = Pinspec::CLI.new([], { "app-env" => ["PATH=/a=b:/c"] })
+
+      expect(cli.send(:app_env)).to eq("PATH" => "/a=b:/c")
+    end
+
+    it "accepts the target before the flags" do
+      root = app_dir("basic_app")
+      stdout, _stderr, status = run_cli(
+        "plan", File.join(root, "app/services/invoice_calculator.rb#call"), "--app", root
+      )
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("InvoiceCalculator#call")
+    end
+
+    it "takes a bare file and assumes #call" do
+      root = app_dir("basic_app")
+      stdout, _stderr, status = run_cli(
+        "plan", "--app", root, File.join(root, "app/services/invoice_calculator.rb")
+      )
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("InvoiceCalculator#call")
+    end
+  end
+
   describe "pin" do
     it "exits 2 when it is not pointed at an app, since there is no world to build" do
       _stdout, stderr, status = run_cli("pin", target("invoice_calculator.rb", "call"))
