@@ -60,8 +60,9 @@ module Pinspec
           new(file_path, method_name).parse
         end
 
-        DEFAULT_METHOD = "call"
-
+        # Returns [file, method] with method nil when the target named none. It is
+        # the caller's job to discover one, because that needs the file's contents
+        # and the surrounding directory's convention.
         def split_target(target)
           text = target.to_s
           return text.split("#", 2) if text.include?("#")
@@ -72,7 +73,7 @@ module Pinspec
                   "(got #{target.inspect}); e.g. app/services/invoice_calculator.rb#call"
           end
 
-          [text, DEFAULT_METHOD]
+          [text, nil]
         end
       end
 

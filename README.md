@@ -73,10 +73,17 @@ on the command line always wins.
 `TARGET` is a file, a `FILE#METHOD`, or a directory:
 
 ```bash
-pinspec pin app/services/invoice_calculator.rb          # assumes #call
-pinspec pin app/services/invoice_calculator.rb#total    # a different method
+pinspec pin app/services/invoice_calculator.rb          # discovers the method
+pinspec pin app/services/invoice_calculator.rb#total    # or name it yourself
 pinspec pin app/services                                # everything under it
 ```
+
+When you do not name a method, pinspec finds one: it counts the method names the
+directory actually uses and follows that convention, so an application whose entry
+points are `perform` needs no configuration. Failing that it looks for
+`call`, `perform`, `run`, `execute`, `process`, then a class's only public method.
+When several public methods are plausible and none is conventional it **asks**
+rather than picking, listing what it found. `--method NAME` settles it.
 
 Pinning a directory keeps going when a target is refused, and prints one summary:
 

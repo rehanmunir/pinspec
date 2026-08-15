@@ -71,9 +71,11 @@ module Pinspec
     method_option :app, type: :string, default: ".", desc: "target app root"
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES,
                           desc: "max input cases per method"
+    method_option :method, type: :string, banner: "NAME",
+                          desc: "the method to pin, when discovery would guess or refuse"
     def plan(target)
       guarded do
-        file, method = Analyzer::TargetParser.split_target(target)
+        file, method = resolve_target(target)
         target_profile = Analyzer::TargetParser.parse(file, method)
 
         print_profile(target_profile)
@@ -116,6 +118,8 @@ module Pinspec
                           desc: "probe boots; 2 is the default because one process shares warm caches"
     method_option :"compare-sql", type: :boolean, default: false,
                                   desc: "include SQL fingerprints in the stability decision"
+    method_option :method, type: :string, banner: "NAME",
+                          desc: "the method to pin, when discovery would guess or refuse"
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime (when it is not this shell's Ruby)"
     method_option :sample, type: :boolean, default: false,
@@ -125,7 +129,7 @@ module Pinspec
     def capture(*args)
       guarded do
         target = target_from(args)
-        file, method = Analyzer::TargetParser.split_target(target)
+        file, method = resolve_target(target)
 
         result = Runner::Capture.new(
           app_root:    options[:app],
@@ -155,6 +159,8 @@ module Pinspec
                          desc: "overwrite a pin file that has been hand-edited"
     method_option :snapshot, type: :string, default: "inline", enum: %w[inline insta approvals],
                              desc: "snapshot backend"
+    method_option :method, type: :string, banner: "NAME",
+                          desc: "the method to pin, when discovery would guess or refuse"
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime (when it is not this shell's Ruby)"
     method_option :sample, type: :boolean, default: false,
@@ -178,7 +184,12 @@ module Pinspec
         files = Batch.targets_in(path)
         raise TargetNotFound, "no .rb files under #{path}" if files.empty?
 
-        puts "pinning #{files.size} file(s) under #{path}"
+        # Counted once over the directory: the method name this application uses for
+        # its entry points. chatwoot says `perform`, mastodon says `call`.
+        @convention = Analyzer::Discovery.convention_for(files)
+
+        puts "pinning #{files.size} file(s) under #{path}" \
+             "#{@convention ? " (this app's convention: ##{@convention})" : ''}"
         puts
 
         report = Batch.new(files) { |file| pin_one(file, quiet: true) }.run
@@ -190,7 +201,7 @@ module Pinspec
       end
 
       def pin_one(target, quiet: false)
-        file, method = Analyzer::TargetParser.split_target(target)
+        file, method = resolve_target(target)
 
         capture = Runner::Capture.new(
           app_root: options[:app], target: file, method: method,
@@ -255,12 +266,14 @@ module Pinspec
     method_option :cases, type: :numeric, default: Inputs::Corpus::DEFAULT_MAX_CASES
     method_option :"test-command", type: :string,
                                    desc: "run the app's suite in its own runtime (for apps on Ruby < 3.4)"
+    method_option :method, type: :string, banner: "NAME",
+                          desc: "the method to pin, when discovery would guess or refuse"
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime"
     def validate(*args)
       guarded do
         target = target_from(args)
-        file, method = Analyzer::TargetParser.split_target(target)
+        file, method = resolve_target(target)
 
         capture = Runner::Capture.new(
           app_root: options[:app], target: file, method: method,
@@ -340,6 +353,36 @@ module Pinspec
     def warn_about_legacy_env
       warn "pinspec: `--app-env A=1 B=2` is the 0.1.0 form and still works. " \
            "Prefer `--app-env A=1 --app-env B=2`, or record it once with `pinspec init`."
+    end
+
+    # `pinspec pin app/services/foo.rb` used to assume #call. Across five public Rails
+    # codebases only 14% of service files had a resolvable one - chatwoot's are named
+    # `perform` - so the method is discovered instead, using the convention the
+    # application itself follows.
+    def resolve_target(target)
+      file, method = Analyzer::TargetParser.split_target(target)
+      return [file, method] if method
+      return [file, options[:method]] if options[:method]
+
+      choice = Analyzer::Discovery.new(file).choose(convention: @convention)
+
+      if choice.ambiguous?
+        raise AmbiguousTarget, ambiguous_message(file, choice)
+      end
+
+      @chosen = choice
+      [file, choice.descriptor]
+    end
+
+    def ambiguous_message(file, choice)
+      if choice.reason == :no_public_methods
+        "#{File.basename(file)} defines no public method to pin. Name one explicitly " \
+          "if it is private on purpose: #{File.basename(file)}#the_method"
+      else
+        "#{File.basename(file)} defines several public methods and none is a " \
+          "conventional entry point (#{choice.candidates.join(', ')}). Name the one " \
+          "you mean: #{File.basename(file)}##{choice.candidates.first}"
+      end
     end
 
     def config
@@ -736,7 +779,8 @@ module Pinspec
         name = File.basename(outcome.file).ljust(width)
 
         puts case outcome.status
-             when :pinned  then format("  pinned   %s  %d case(s), verified", name, outcome.pinned)
+             when :pinned  then format("  pinned   %s  %-10s %d case(s), verified",
+                                       name, "##{outcome.target.to_s[/#(.+)\z/, 1]}", outcome.pinned)
              when :refused then format("  skipped  %s  %s", name, outcome.detail)
              else               format("  FAILED   %s  %s", name, outcome.detail)
              end

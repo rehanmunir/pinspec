@@ -6,8 +6,10 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
       expect(described_class.split_target("app/services/foo.rb#call")).to eq(["app/services/foo.rb", "call"])
     end
 
-    it "defaults a bare file to #call, which is what a service object almost always is" do
-      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", "call"])
+    # Absent means absent. Discovery needs the file's contents and the surrounding
+    # directory's convention, neither of which a string split has.
+    it "reports no method when the target named none" do
+      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", nil])
     end
 
     it "keeps a qualified method" do
@@ -374,8 +376,8 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
         .to eq(["app/services/foo.rb", "call"])
     end
 
-    it "assumes #call for a bare ruby file" do
-      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", "call"])
+    it "leaves the method to discovery for a bare ruby file" do
+      expect(described_class.split_target("app/services/foo.rb")).to eq(["app/services/foo.rb", nil])
     end
 
     it "rejects something that is neither a ruby file nor a target" do
