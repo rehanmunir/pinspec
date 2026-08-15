@@ -1,0 +1,18 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    activerecord (6.1.7.6)
+    database_cleaner (1.8.5)
+    factory_girl (4.9.0)
+      activesupport (>= 3.0.0)
+    factory_girl_rails (4.9.0)
+      factory_girl (~> 4.9.0)
+    pundit (2.3.1)
+    rails (6.1.7.6)
+    rspec-rails (5.1.2)
+
+RUBY VERSION
+   ruby 2.6.10p210
+
+BUNDLED WITH
+   1.17.3

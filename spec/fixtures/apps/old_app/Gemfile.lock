@@ -1,0 +1,11 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    activerecord (5.2.8.1)
+    rails (5.2.8.1)
+
+RUBY VERSION
+   ruby 2.5.8p224
+
+BUNDLED WITH
+   1.17.3

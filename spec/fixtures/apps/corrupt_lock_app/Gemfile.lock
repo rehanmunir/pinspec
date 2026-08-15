@@ -1,0 +1,7 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    rails (edge)
+
+RUBY VERSION
+   ruby 3.3.0p0

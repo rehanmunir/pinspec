@@ -1,0 +1,26 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    acts_as_tenant (1.0.1)
+    activerecord (7.1.3)
+    cancancan (3.5.0)
+    carrierwave (3.0.7)
+    database_cleaner-active_record (2.1.0)
+      database_cleaner-core (~> 2.0.0)
+    database_cleaner-core (2.0.1)
+    devise (4.9.4)
+      warden (~> 1.2.3)
+    flipper (1.3.0)
+    paper_trail (15.1.0)
+    paranoia (2.6.3)
+    rails (7.1.3)
+    rspec-rails (6.1.1)
+    spring (4.1.3)
+    vcr (6.2.0)
+    webmock (3.23.0)
+
+RUBY VERSION
+   ruby 3.3.0p0
+
+BUNDLED WITH
+   2.5.6
