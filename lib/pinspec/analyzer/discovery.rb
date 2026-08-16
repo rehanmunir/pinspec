@@ -7,7 +7,15 @@ module Pinspec
     class Discovery
       CONVENTIONAL = %w[call perform run execute process].freeze
 
-      NON_TARGETS = %w[initialize to_s to_str inspect hash eql? == <=> each to_h to_a to_proc].freeze
+      # Never a target: these are object protocol, not behaviour anyone pins.
+      NON_TARGETS = %w[initialize to_s to_str inspect hash eql? == <=> to_proc].freeze
+
+      # Conversion methods, which are USUALLY protocol but are sometimes the whole
+      # public surface of a service object - OFN's AvailablePaymentMethodsService
+      # exposes exactly `to_a` and nothing else. Excluding them outright meant such a
+      # class had no candidates at all and was refused as ambiguous. They are ranked
+      # last instead, so they win only when nothing else is offered.
+      LAST_RESORT = %w[to_a to_h each].freeze
 
       Choice = Data.define(:method_name, :reason, :candidates, :owner) do
         def ambiguous?
@@ -68,6 +76,13 @@ module Pinspec
 
         # A class with exactly one public method has only one thing it can mean.
         return chosen(instance.first, :sole_method, instance) if instance.size == 1
+
+        # Nothing conventional, and what remains is a single conversion method: that is
+        # this class's whole public surface, so it is the target.
+        ordinary = instance - LAST_RESORT
+        conversions = instance & LAST_RESORT
+        return chosen(conversions.first, :sole_method, instance) if ordinary.empty? && conversions.size == 1
+        return chosen(ordinary.first, :sole_method, instance) if ordinary.size == 1
         return Choice.new(method_name: singleton.first, reason: :sole_method, candidates: singleton, owner: nil) if instance.empty? && singleton.size == 1
 
         Choice.new(method_name: nil, reason: :ambiguous, candidates: (instance + singleton).first(8), owner: nil)

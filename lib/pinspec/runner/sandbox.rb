@@ -81,10 +81,24 @@ module Pinspec
           raise ProbeFailure,
                 "the probe exited #{status.exitstatus} in #{@app_root}.\n" \
                 "#{runtime.note ? "#{runtime.note}\n\n" : ''}" \
-                "#{stderr.to_s.lines.last(15).join}"
+                "#{excerpt(stderr)}"
         end
 
         parse(stdout, stderr, run)
+      end
+
+      # A boot failure says WHAT went wrong on its first line and where on the rest.
+      # Showing only the last N lines shows the bottom of a backtrace - gem_prelude,
+      # rubygems.rb - which is identical for every failure and identifies none of them.
+      # Diagnosing a real application's failure took three commands and a read of
+      # pinspec's own internals because of that.
+      def excerpt(text, head: 6, tail: 6)
+        lines = text.to_s.lines
+        return lines.join if lines.size <= head + tail
+
+        lines.first(head).join +
+          "  ... #{lines.size - head - tail} more line(s) ...\n" +
+          lines.last(tail).join
       end
 
       def parse(stdout, stderr, run)
@@ -93,7 +107,7 @@ module Pinspec
         if json.nil?
           raise ProbeFailure,
                 "the probe produced no observations.\n" \
-                "stdout: #{stdout.to_s.lines.last(10).join}\nstderr: #{stderr.to_s.lines.last(10).join}"
+                "stdout: #{excerpt(stdout)}\nstderr: #{excerpt(stderr)}"
         end
 
         parsed = JSON.parse(json)

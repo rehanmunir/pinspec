@@ -65,6 +65,26 @@ RSpec.describe Pinspec::Analyzer::Discovery do
   # `def self.call(...)` delegating to `def call` is the commonest service idiom in
   # Ruby. The bare name resolves to two definitions, and refusing it cost 108 of
   # forem's 322 service files - 13% of the whole corpus.
+  # Found by pinning a real directory: 10 of 20 files came back AmbiguousTarget, and
+  # one of them had a single public method that pinspec was excluding outright.
+  describe "a class whose public surface is a conversion method" do
+    it "pins to_a when that is all the class exposes" do
+      choice = choose("conversion_only", convention: "call")
+
+      expect(choice.method_name).to eq("to_a")
+      expect(choice).not_to be_ambiguous
+    end
+
+    it "still prefers a real entry point over a conversion method" do
+      expect(choose("conversion_and_call", convention: "call").method_name).to eq("call")
+    end
+
+    it "keeps to_s and inspect off the table entirely" do
+      expect(described_class::NON_TARGETS).to include("to_s", "inspect", "initialize")
+      expect(described_class::NON_TARGETS).not_to include("to_a")
+    end
+  end
+
   describe "a class-method wrapper around an instance method" do
     subject(:choice) { choose("wrapper_service") }
 
