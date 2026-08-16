@@ -366,38 +366,6 @@ module Pinspec
     def dsl_module
       legacy_dsl ? "FactoryGirl" : "FactoryBot"
     end
-
-    def traits_for(name)
-      ancestry(name).flat_map(&:traits)
-    end
-
-    def ancestry(name)
-      chain = []
-      seen  = []
-      current = factory(name)
-
-      while current && !seen.include?(current.name)
-        seen << current.name
-        chain.unshift(current)
-        current = current.parent && factory(current.parent)
-      end
-
-      chain
-    end
-
-    def attributes_for(name, traits: [])
-      chain = ancestry(name)
-      merged = {}
-
-      chain.each { |f| f.attributes.each { |a| merged[a.name] = a } }
-
-      Array(traits).each do |trait_name|
-        found = chain.reverse.filter_map { |f| f.trait(trait_name) }.first
-        found&.attributes&.each { |a| merged[a.name] = a }
-      end
-
-      merged.values
-    end
   end
 
   Column = Data.define(

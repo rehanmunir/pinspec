@@ -185,6 +185,7 @@ module Pinspec
 
       def coverage_caveats
         caveats = []
+        caveats << vacuous_caveat
         caveats << seq_caveat
         caveats << truncated_caveat
         caveats << quarantine_caveat
@@ -201,6 +202,35 @@ module Pinspec
 
           #{caveats.map { |caveat| "- #{caveat}" }.join("\n")}
         MD
+      end
+
+      # The honest half of pin strength, and the free half. A case that returned an
+      # empty collection, wrote no rows, enqueued nothing and sent nothing did run -
+      # but almost any change to the target would still satisfy it. Measured on real
+      # code, these are exactly the pins that score weak or worthless.
+      def vacuous_caveat
+        return nil if @stability.nil?
+
+        count = @stability.stable.count { |verdict| vacuous?(verdict.observation) }
+        return nil if count.zero?
+
+        "#{count} pinned case(s) observed nothing happening: an empty or absent return " \
+          "value, no rows written, no jobs, no mail. The pin holds, but almost any " \
+          "change to the target would still satisfy it. Give the target a world with " \
+          "something in it - `--sample` reads real rows - before relying on these."
+      end
+
+      EMPTY_RETURNS = [[], {}, nil, false, ""].freeze
+
+      def vacuous?(observation)
+        return false unless observation["status"] == "returned"
+        return false unless observation["enqueued_jobs"].to_a.empty?
+        return false unless observation["mail_deliveries"].to_a.empty?
+        return false unless observation["db_delta"].to_h.values.all? { |n| n.to_i.zero? }
+
+        EMPTY_RETURNS.include?(Tags.decode(observation["return_value"]))
+      rescue StandardError
+        false
       end
 
       def seq_caveat

@@ -392,7 +392,10 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       )
     end
 
-    it "orders imports after created records, so their refs can point at either" do
+    # Imports come FIRST. create_record_for skips a table whose ref already exists, so
+    # building factory rows first meant every binding pointed at the factory record
+    # and the sampled row - the whole point of --sample - was never used.
+    it "orders imports before created records, so bindings reach the sampled row" do
       plan = build("full_app", "company_auditor.rb", "call", imports: [cluster])
       step = plan.steps_of(:import_record).first
 
@@ -401,7 +404,7 @@ RSpec.describe Pinspec::Setup::ContextBuilder do
       expect(step.payload[:source]).to eq("sample:companies:3f9a")
 
       kinds = step_kinds(plan)
-      expect(kinds.index(:create_record)).to be < kinds.index(:import_record)
+      expect(kinds.index(:import_record)).to be < (kinds.index(:create_record) || Float::INFINITY)
     end
 
     it "changes the plan_id, because it changes the world" do

@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.3.0 - 2026-08-15
+
+More of a real codebase reachable, four things that were quietly wrong put right, and
+294 fewer lines of code.
+
+Measured across five public Rails applications (openfoodnetwork, chatwoot, mastodon,
+forem, publishing-api — 841 service files), the share pinspec can plan a world for:
+
+| | before | after |
+|---|---|---|
+| openfoodnetwork | 16% | 39% |
+| chatwoot | 2% | 45% |
+| mastodon | 10% | 76% |
+| forem | 23% | 57% |
+| publishing-api | 24% | 67% |
+| **all** | **14%** | **53%** |
+
+### Reaching more targets
+
+- **The target method is discovered, not assumed.** `#call` is a convention, not the
+  convention — chatwoot's entry points are named `perform`. pinspec counts the method
+  names a directory actually uses and follows that application's own convention,
+  falling back to `call`/`perform`/`run`/`execute`/`process`, then a class's only
+  public method. Several plausible methods and no conventional one is a question, not
+  a guess.
+- **`def self.call(...)` delegating to `def call`** is the commonest service idiom in
+  Ruby, and it made the bare name resolve to two definitions — 108 of forem's 322
+  files were refused for it. The instance method is now named explicitly.
+- **A class with no `initialize` has the default constructor, not an unreadable one.**
+  Superclasses are resolved across the application's own files; only a constructor
+  that exists and cannot be read is still refused. That one change took mastodon from
+  10% to 76%.
+- **Two type-hint rules.** In 222 of 222 parameters refused as unbuildable models, the
+  "type" was just the parameter's own name capitalised — the refusal was rejecting
+  pinspec's own guess. Names shaped like `create_params` or `options` are Hashes and
+  plural names are Arrays, which are values pinspec can actually build.
+
+### `pinspec verify SPEC_FILE`
+
+Runs **any** spec file in the three environments, whoever wrote it. The Verifier never
+knew where a spec came from, so this needed a command and nothing else. A spec
+asserting `Time.now.strftime("%z")` passes where it was written and fails under
+`hostile` — the failure a colleague's CI would have reported a week later.
+
+### Fixed
+
+- **`neighbored` never ran anything twice.** It passed the same path to RSpec twice,
+  and RSpec loads a given path once — so the configuration silently re-checked what
+  `isolated` checks, while the README claimed it caught accumulated state. It now runs
+  a copy alongside the original, which really does execute the pin twice. On its first
+  honest run it immediately found a real defect: **factory_bot sequences are
+  process-global**, so a pin whose world uses one produced `INV-1` then `INV-2` and
+  failed against its own snapshot. Both hosts now rewind sequences before every case.
+- **`--boots 1` silently defeated the central claim.** One run has nothing to compare
+  against, so every case was called stable by virtue of never being checked. Two is
+  now a floor, not a default.
+- **The emitted spec dropped a factory record's attributes and associations.** The
+  probe passed them; the spec did not, so the two hosts built different worlds.
+- **`--sample` bound to the factory record, not the sampled row.** Imports are now
+  built first, so the real row the flag exists to fetch is the one the target receives.
+- **`redact:` in `.pinspec.yml` was accepted and ignored.**
+
+### Deleted
+
+294 lines net. Nothing here changes behaviour any user could observe:
+
+- `Emit::Namer` (253 lines with its spec) — an LLM-backed description generator with
+  an injectable client port, a prompt builder and an output sanitiser, reachable from
+  nothing. There was no flag that turned it on.
+- `--snapshot` — a flag whose entire implementation refused two of its own three
+  values. Removed rather than given an abstraction to hang implementations on.
+- `Sampler.choose_env` / `production_like?` / `guard_production!` and
+  `EnvironmentRefused` — a guard for a path with no caller.
+- `FactoryIndex#ancestry` / `#traits_for` / `#attributes_for` — one concept
+  implemented twice; this was the copy nothing called.
+- `Sandbox`'s `timeout:` and `runner:` seams (there is no timeout wrapper anywhere),
+  `MAX_GENERATIONS`, and 31 of 41 `NON_MODEL_HINTS` entries that fire zero times.
+
+### Added
+
+- A **vacuous-pin caveat** in the report: a case that returned nothing, wrote no rows,
+  enqueued nothing and sent nothing did run, but almost any change to the target would
+  still satisfy it. These are exactly the pins that score weak.
+
 ## 0.2.0 - 2026-08-15
 
 Ergonomics. 0.1.0 worked, but a run against a real application needed six lines of

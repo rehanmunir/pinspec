@@ -269,58 +269,7 @@ RSpec.describe Pinspec::Inputs::Redactor do
 end
 
 RSpec.describe Pinspec::Inputs::Sampler do
-  describe ".choose_env" do
-    it "prefers development when it has rows" do
-      expect(described_class.choose_env(available: %w[development test],
-                                        counts: { "development" => 400, "test" => 0 }))
-        .to eq("development")
-    end
 
-    it "falls back to test when development is empty" do
-      expect(described_class.choose_env(available: %w[development test],
-                                        counts: { "development" => 0, "test" => 12 }))
-        .to eq("test")
-    end
-
-    it "prefers development when both have rows, which is the reversal of v0.2" do
-      expect(described_class.choose_env(available: %w[development test],
-                                        counts: { "development" => 400, "test" => 30 }))
-        .to eq("development")
-    end
-
-    it "honours an explicit override" do
-      expect(described_class.choose_env(available: %w[development], override: "staging"))
-        .to eq("staging")
-    end
-
-    it "still picks something when nothing has rows" do
-      expect(described_class.choose_env(available: %w[test], counts: {})).to eq("test")
-    end
-  end
-
-  describe "production guard" do
-    it "recognises a production-looking name" do
-      expect(described_class).to be_production_like("myapp_production")
-      expect(described_class).to be_production_like("live-db")
-      expect(described_class).not_to be_production_like("myapp_development")
-    end
-
-    it "refuses without confirmation, at exit 11" do
-      expect { described_class.guard_production!("myapp_production") }
-        .to raise_error(Pinspec::EnvironmentRefused) { |error|
-          expect(error.exit_code).to eq(11)
-          expect(error.message).to include("only ever")
-        }
-    end
-
-    it "proceeds when confirmed" do
-      expect { described_class.guard_production!("myapp_production", confirmed: true) }.not_to raise_error
-    end
-
-    it "says nothing about an ordinary database" do
-      expect { described_class.guard_production!("myapp_development") }.not_to raise_error
-    end
-  end
 
   describe "the generated script" do
     subject(:script) { described_class.script_for([{ table: "invoices", status_column: "status", limit: 5 }]) }

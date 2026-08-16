@@ -72,6 +72,62 @@ RSpec.describe "the command surface a new user meets" do
     end
   end
 
+  # The commercial point: everyone now has an agent that writes tests, and nobody
+  # verifies them. The Verifier never knew where a spec came from, so this needed a
+  # command and nothing else.
+  describe "verify, on a spec pinspec did not write" do
+    let(:app) { File.join(UX_ROOT, "spec/fixtures/apps/rails71_basic") }
+
+    around do |example|
+      @written = []
+      example.run
+      @written.each { |f| FileUtils.rm_f(f) }
+    end
+
+    def write_spec(name, body)
+      path = File.join(app, "spec", name)
+      File.write(path, body)
+      @written << path
+      File.join("spec", name)
+    end
+
+    it "passes a clean hand-written spec" do
+      rel = write_spec("ux_ok_spec.rb", <<~RUBY)
+        require "spec_helper"
+        RSpec.describe("arithmetic") { it("adds") { expect(2 + 2).to eq(4) } }
+      RUBY
+
+      stdout, _stderr, status = run_cli("verify", rel, "--app", app)
+
+      expect(status.exitstatus).to eq(0)
+      expect(stdout).to include("isolated")
+      expect(stdout).to include("green")
+    end
+
+    # A spec that passes where it was written and fails on any CI in another
+    # timezone. This is the failure an agent produces without noticing.
+    it "catches a timezone dependency a human or an agent would miss" do
+      rel = write_spec("ux_tz_spec.rb", <<~RUBY)
+        require "spec_helper"
+        RSpec.describe("dates") do
+          it("formats") { expect(Time.now.strftime("%z")).to eq("+0000") }
+        end
+      RUBY
+
+      _stdout, stderr, status = run_cli("verify", rel, "--app", app)
+
+      expect(status.exitstatus).to eq(9)
+      expect(stderr).to include("hostile")
+    end
+
+    it "says so when the file is not there" do
+      _stdout, stderr, status = run_cli("verify", "spec/nope_spec.rb", "--app", app)
+
+      expect(status.exitstatus).to eq(2)
+      expect(stderr).to include("no spec file at")
+    end
+  end
+
   describe "a config it cannot honour" do
     let(:app) do
       dir = Dir.mktmpdir

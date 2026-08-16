@@ -11,7 +11,7 @@ module Pinspec
       true
     end
 
-    ORDER = %w[pin init analyze validate report plan capture version].freeze
+    ORDER = %w[pin verify init analyze validate report plan capture version].freeze
 
     # Thor sorts the command list alphabetically after building it, which buries the
     # one verb most people want between `init` and `plan`, and gives the two
@@ -29,6 +29,31 @@ module Pinspec
            "(probe v#{Pinspec::PROBE_VERSION}, serializer v#{Pinspec::SERIALIZER_VERSION})"
     end
     map %w[--version -v] => :version
+
+    desc "verify SPEC_FILE", "Run any spec file in pinspec's environments, whoever wrote it"
+    method_option :app, type: :string, default: ".", desc: "target app root"
+    method_option :"verify-level", type: :string, default: "full", enum: %w[full isolated]
+    method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
+                              desc: "environment for the app's own runtime"
+    def verify(spec_file)
+      guarded do
+        path = File.expand_path(spec_file, options[:app])
+
+        unless File.file?(path)
+          raise TargetNotFound, "no spec file at #{path}"
+        end
+
+        outcomes = Verify::Verifier.new(
+          app_root: options[:app], spec_path: path, env: app_env,
+          level: setting("verify-level", "full").to_sym
+        ).verify
+
+        puts "verify   #{spec_file}"
+        print_verification(outcomes)
+
+        raise VerifyFailed, verify_failed_message(outcomes) unless outcomes.all?(&:green?)
+      end
+    end
 
     desc "init [APP_PATH]", "Write .pinspec.yml so later runs need no flags"
     method_option :force, type: :boolean, default: false, desc: "overwrite an existing .pinspec.yml"
@@ -157,8 +182,6 @@ module Pinspec
     method_option :"skip-verify", type: :boolean, default: false
     method_option :force, type: :boolean, default: false,
                          desc: "overwrite a pin file that has been hand-edited"
-    method_option :snapshot, type: :string, default: "inline", enum: %w[inline insta approvals],
-                             desc: "snapshot backend"
     method_option :method, type: :string, banner: "NAME",
                           desc: "the method to pin, when discovery would guess or refuse"
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
@@ -170,7 +193,6 @@ module Pinspec
     def pin(*args)
       guarded do
         target = target_from(args)
-        refuse_unbuilt_backend!
         warn_about_redaction!
 
         return pin_directory(target) if File.directory?(target)
@@ -207,7 +229,7 @@ module Pinspec
           app_root: options[:app], target: file, method: method,
           max_cases: setting('cases', Inputs::Corpus::DEFAULT_MAX_CASES),
           boots: setting('boots', 2), sandbox_env: app_env,
-          sample: setting('sample', false), redact: !options[:"no-redact"]
+          sample: setting('sample', false), redact: !options[:"no-redact"] && setting("redact", true)
         ).run
 
         print_capture(capture) unless quiet
@@ -403,16 +425,6 @@ module Pinspec
 
     def setting(key, default)
       config.value(key, options[key.to_sym], default)
-    end
-
-    def refuse_unbuilt_backend!
-      backend = options[:snapshot]
-      return if backend.nil? || backend == "inline"
-
-      raise VerifyFailed,
-            "the #{backend} snapshot backend is not built yet; only `inline` is. " \
-            "Inline snapshots keep the pinned value in the spec file, where a reviewer " \
-            "can read it - which is why it is the default. Re-run without --snapshot."
     end
 
     def warn_about_redaction!

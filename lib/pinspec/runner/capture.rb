@@ -17,7 +17,9 @@ module Pinspec
         @target_file = target
         @method = method
         @max_cases = max_cases
-        @boots = boots
+        # Two is the floor, not the default. One boot has nothing to compare against,
+        # so every case would be called stable by virtue of never being checked.
+        @boots = [boots.to_i, 2].max
         @compare_sql = compare_sql
         @sandbox_env = sandbox_env
         @output_dir = output_dir || File.join(app_root, Sandbox::PROBE_DIR)

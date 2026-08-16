@@ -5,8 +5,6 @@ require "digest"
 module Pinspec
   module Setup
     class ContextBuilder
-      MAX_GENERATIONS = 3
-
       class << self
         def build(target:, profile:, imports: [], generation: 1, tz: nil)
           new(target: target, profile: profile, imports: imports, generation: generation, tz: tz).build
@@ -33,8 +31,11 @@ module Pinspec
         refuse_attachment_targets!
 
         environment_steps
-        record_steps
+        # Imports first: create_record_for skips a table whose ref already exists, so
+        # building factory rows first meant every binding pointed at the factory
+        # record and the sampled row - the whole point of --sample - went unused.
         import_steps
+        record_steps
         context_steps
         subject_step
 
@@ -146,11 +147,13 @@ module Pinspec
         @resolver.table_for_type_hint(param.type_hint)
       end
 
+      # Only the hints that actually occur. Measured over 841 real service files, these
+      # ten are the only ones ever produced; the other thirty-one fired zero times and
+      # none of them has a Boundary value, so a hint that did somehow reach the list
+      # would be exempted from the refusal and then passed as nil - manufacturing the
+      # exact fiction the refusal exists to prevent.
       NON_MODEL_HINTS = %w[
-        String Symbol Integer Float Numeric Decimal BigDecimal Boolean TrueClass
-        FalseClass Hash Array Range Time Date DateTime Proc Class Module Object
-        NilClass Params Param Options Option Attributes Attribute Id Ids Name
-        Amount Quantity Count Total Price Rate Percentage Status State Kind Type
+        String Symbol Integer Float Boolean Hash Array Time Date Object
       ].freeze
 
       def refuse_unresolvable_model_param!(param)

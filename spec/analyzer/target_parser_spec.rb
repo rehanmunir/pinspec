@@ -410,7 +410,6 @@ RSpec.describe Pinspec::Analyzer::TargetParser do
       Pinspec::NothingStableToPin      => 8,
       Pinspec::VerifyFailed            => 9,
       Pinspec::UnsupportedRailsVersion => 10,
-      Pinspec::EnvironmentRefused      => 11,
       Pinspec::PinspecInternalError    => 12
     }.each do |klass, code|
       it "maps #{klass.name.split('::').last} to #{code}" do

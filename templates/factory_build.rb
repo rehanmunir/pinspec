@@ -8,6 +8,18 @@ module PinspecFactory
     @attempts ||= {}
   end
 
+  # factory_bot sequences are process-global and monotonic, so a pin whose world uses
+  # one is only reproducible while nothing else in the process built that factory
+  # first. Running the same pin twice in one process produced INV-1 then INV-2 and the
+  # second run failed against its own snapshot. Both hosts rewind before every case,
+  # so a case always sees the same sequence values.
+  def self.reset_sequences!
+    mod = defined?(FactoryBot) ? FactoryBot : (defined?(FactoryGirl) ? FactoryGirl : nil)
+    return unless mod.respond_to?(:rewind_sequences)
+
+    mod.rewind_sequences
+  end
+
   def self.reset_attempts!
     @attempts = {}
   end

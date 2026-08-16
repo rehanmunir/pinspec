@@ -63,6 +63,7 @@ on the command line always wins.
 | Command | What it does |
 | --- | --- |
 | `pinspec pin TARGET` | Capture, emit the spec, verify it. This is the one you want. |
+| `pinspec verify SPEC_FILE` | Run **any** spec file in the three environments — including one a human or an agent wrote. |
 | `pinspec init` | Write `.pinspec.yml` so later runs need no flags. |
 | `pinspec analyze` | App profile, schema, factories and hazards. Reads files only — no boot, no database. |
 | `pinspec validate TARGET` | Mutation-scores the pin, one aspect at a time. Needs Ruby >= 3.4 and `mutineer`. |
@@ -109,12 +110,25 @@ captured it proves repeatability rather than portability:
 
 - **isolated** — the file alone, as captured.
 - **hostile** — a different timezone, locale and RSpec seed.
-- **neighbored** — the file twice in one process, so accumulated state shows up.
+- **neighbored** — a copy of the file alongside it, so state left behind by one run shows up in the next.
 
 The emitted spec forces the capture's answer on every axis rather than inheriting
 the suite's: isolation regime, queue adapter, clock, seed, locale and zone. A suite
 that truncates instead of transacting, or that runs jobs inline, would otherwise
 turn a green capture into a red or vacuous spec.
+
+## Verifying specs pinspec did not write
+
+Everyone has an agent that writes tests now. Almost nobody runs them anywhere but the
+machine that wrote them.
+
+```bash
+pinspec verify spec/models/order_spec.rb
+```
+
+Same three environments, on any RSpec file. A spec asserting `Time.now.strftime("%z")`
+passes where it was written and fails under `hostile` — which is what a colleague's CI
+in another timezone would have told you a week later.
 
 ## No database ids in a pin
 

@@ -20,8 +20,6 @@ module Pinspec
         "probe-#{pid}-#{object_id || rand(1 << 24)}.rb"
       end
 
-      DEFAULT_TIMEOUT = 600
-
       FORCED_ENV = {
         "DISABLE_SPRING" => "1",
         "TZ" => "UTC",
@@ -36,11 +34,9 @@ module Pinspec
         end
       end
 
-      def initialize(app_root:, probe_source:, timeout: DEFAULT_TIMEOUT, runner: nil, env: {})
+      def initialize(app_root:, probe_source:, env: {})
         @app_root = app_root
         @probe_source = probe_source
-        @timeout = timeout
-        @runner = runner
         @env = env
       end
 
@@ -114,8 +110,6 @@ module Pinspec
       end
 
       def runner_command
-        return @runner if @runner
-
         relative = File.join(PROBE_DIR, File.basename(probe_path))
 
         if File.file?(File.join(@app_root, "Gemfile"))

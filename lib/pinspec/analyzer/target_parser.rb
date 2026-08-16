@@ -19,11 +19,15 @@ module Pinspec
 
       VISIBILITIES = %i[public private protected].freeze
 
+      # Names that are a bag of attributes rather than a model. `create_params`,
+      # `options`, `article_attributes`.
+      HASH_SHAPED = /\A(?:\w+_)?(?:params|options|attributes|attrs|opts)\z/
+
       SCALARISH_NAMES = %w[
         amount total subtotal price cost quantity qty count index number num
         name email phone title body text message description reason code type
-        kind status state value key data payload options opts args params attrs
-        attributes config settings id token flag mode format scope limit offset
+        kind status state value key data payload args
+        config settings id token flag mode format scope limit offset
         date time now today percent rate ratio sum size length label url path
       ].freeze
 
@@ -791,6 +795,8 @@ module Pinspec
         return "Array"   if s.end_with?("_ids")
         return "Time"    if s.end_with?("_at")
         return "Date"    if s.end_with?("_on", "_date")
+        return "Hash"    if HASH_SHAPED.match?(s)
+        return "Array"   if s.end_with?("s") && !s.end_with?("ss", "us", "is")
         return nil if SCALARISH_NAMES.include?(s)
         return nil unless s.match?(/\A[a-z][a-z0-9_]*\z/)
 

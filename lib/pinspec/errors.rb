@@ -75,10 +75,6 @@ module Pinspec
     self.exit_code = 10
   end
 
-  class EnvironmentRefused < Error
-    self.exit_code = 11
-  end
-
   class ConfigInvalid < Error
     self.exit_code = 13
   end

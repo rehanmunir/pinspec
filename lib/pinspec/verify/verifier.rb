@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "json"
 require "open3"
 
@@ -7,6 +8,8 @@ module Pinspec
   module Verify
     class Verifier
       CONFIGS = %i[isolated hostile neighbored].freeze
+
+      NEIGHBOUR_DIR = "tmp/pinspec"
 
       HOSTILE_TZ_CANDIDATES = ["Etc/GMT+8", "Etc/GMT-6"].freeze
 
@@ -81,8 +84,25 @@ module Pinspec
         when :hostile
           [base + ["--seed", "7", relative], { "TZ" => hostile_tz, "LANG" => "C", "LC_ALL" => "C" }]
         when :neighbored
-          [base + [relative, relative], {}]
+          # A COPY alongside the original, because RSpec loads a given path once
+          # however many times it is named - so passing it twice re-ran nothing, and
+          # this configuration silently checked exactly what :isolated checks.
+          [base + [relative, neighbour_of(relative)], {}]
         end
+      end
+
+      # Written into the app's tmp, with its relative requires rewritten to point back
+      # at the support files the original sits beside.
+      def neighbour_of(relative)
+        source = File.join(@app_root, relative)
+        target = File.join(@app_root, NEIGHBOUR_DIR, "neighbour_#{File.basename(relative)}")
+        support = File.expand_path(File.dirname(source))
+
+        FileUtils.mkdir_p(File.dirname(target))
+        File.write(target, Analyzer::Source.read(source)
+                                           .gsub('require_relative "support/', %(require_relative "#{support}/support/)))
+
+        File.join(NEIGHBOUR_DIR, File.basename(target))
       end
 
       def hostile_tz

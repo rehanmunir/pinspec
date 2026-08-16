@@ -7,41 +7,9 @@ module Pinspec
     class Sampler
       SCRIPT_PATH = "tmp/pinspec/sampler.rb"
 
-      ENV_PREFERENCE = %w[development test].freeze
-
-      PRODUCTION_HINTS = [
-        /(?<![a-z])prod(uction)?(?![a-z])/i,
-        /(?<![a-z])live(?![a-z])/i,
-        /(?<![a-z])master(?![a-z])/i
-      ].freeze
-
       MAX_DISTINCT_STATUSES = 6
 
       class << self
-        def choose_env(available:, counts: {}, override: nil)
-          return override if override
-
-          populated = ENV_PREFERENCE.find do |env|
-            available.include?(env) && counts.fetch(env, 0).positive?
-          end
-
-          populated || ENV_PREFERENCE.find { |env| available.include?(env) } || available.first
-        end
-
-        def production_like?(name)
-          PRODUCTION_HINTS.any? { |hint| name.to_s.match?(hint) }
-        end
-
-        def guard_production!(name, confirmed: false)
-          return unless production_like?(name)
-          return if confirmed
-
-          raise EnvironmentRefused,
-                "#{name.inspect} looks like a production database. pinspec only ever " \
-                "SELECTs, but it will not read production without being told to: " \
-                "re-run with --sample-db pointed somewhere else, or confirm explicitly."
-        end
-
         def script_for(requests)
           new(requests).script
         end

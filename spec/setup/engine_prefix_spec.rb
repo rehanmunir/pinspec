@@ -133,11 +133,24 @@ RSpec.describe "an application built on an engine" do
     it "does not fire for a hint that is not a model name" do
       builder = Pinspec::Setup::ContextBuilder.new(target: target("order_summary.rb"), profile: profile)
 
-      %w[String Hash Integer Params Status Boolean].each do |hint|
+      Pinspec::Setup::ContextBuilder::NON_MODEL_HINTS.each do |hint|
         param = Pinspec::Param.new(name: :thing, kind: :req, default_source: nil, type_hint: hint)
 
         expect { builder.send(:refuse_unresolvable_model_param!, param) }
           .not_to raise_error, "refused a #{hint}"
+      end
+    end
+
+    # The list is ten entries because those are the only hints the parser ever
+    # produces. Names like `params` or `status` never reach it: they are turned into
+    # Hash or into no hint at all before anything camelizes them. Every entry on that
+    # list also has a Boundary value, so exempting one can never mean passing nil.
+    it "exempts only hints the parser can actually produce, all of which have values" do
+      %w[params create_params options status limit].each do |name|
+        hint = Pinspec::Analyzer::TargetParser.allocate.send(:type_hint_for, name, :req, nil)
+
+        expect(hint).to satisfy { |h| h.nil? || Pinspec::Setup::ContextBuilder::NON_MODEL_HINTS.include?(h) },
+                        "#{name} produced #{hint.inspect}, which is neither nil nor an exempt hint"
       end
     end
 

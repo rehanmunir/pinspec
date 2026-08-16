@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "fileutils"
+require "tmpdir"
+
 RSpec.describe Pinspec::Verify::Verifier do
   subject(:verifier) { described_class.new(app_root: "/tmp/app", spec_path: "/tmp/app/spec/x_spec.rb") }
 
@@ -31,10 +34,27 @@ RSpec.describe Pinspec::Verify::Verifier do
       expect(described_class::HOSTILE_TZ_CANDIDATES).to include(env["TZ"])
     end
 
-    it "runs the file twice in one process for the neighbored run" do
-      args, = verifier.send(:arguments_for, :neighbored)
+    # It used to pass the same path twice, and RSpec loads a given path once - so the
+    # configuration re-ran nothing and silently checked what :isolated checks. It now
+    # runs a COPY alongside the original, which really does execute the pin twice.
+    it "runs a copy alongside the original for the neighbored run" do
+      app = Dir.mktmpdir
+      FileUtils.mkdir_p(File.join(app, "spec"))
+      File.write(File.join(app, "spec/x_spec.rb"), "# pin\nrequire_relative \"support/pinspec_support\"\n")
 
-      expect(args.count { |arg| arg.end_with?("x_spec.rb") }).to eq(2)
+      args, = described_class.new(app_root: app, spec_path: File.join(app, "spec/x_spec.rb"))
+                             .send(:arguments_for, :neighbored)
+      specs = args.select { |arg| arg.end_with?("_spec.rb") }
+
+      expect(specs.size).to eq(2)
+      expect(specs.uniq.size).to eq(2), "passing one path twice re-runs nothing"
+      expect(specs.last).to include("neighbour_")
+
+      # The copy's relative requires are rewritten, or it cannot find the support
+      # files the original sits beside.
+      copy = File.read(File.join(app, specs.last))
+      expect(copy).not_to include(%(require_relative "support/))
+      expect(copy).to include("spec/support/pinspec_support")
     end
   end
 

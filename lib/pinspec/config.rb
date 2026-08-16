@@ -6,7 +6,7 @@ module Pinspec
   class Config
     FILENAME = ".pinspec.yml"
 
-    KEYS = %w[cases boots sample redact compare-sql verify-level snapshot test-command env].freeze
+    KEYS = %w[cases boots sample redact compare-sql verify-level test-command env].freeze
 
     EMPTY = { "env" => {} }.freeze
 

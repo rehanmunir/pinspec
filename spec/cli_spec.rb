@@ -316,31 +316,6 @@ RSpec.describe "pinspec CLI" do
       expect(stderr).to include("Rails application root")
     end
 
-    %w[insta approvals].each do |backend|
-      it "refuses the unbuilt #{backend} backend before doing any work" do
-        _stdout, stderr, status = run_cli(
-          "pin", "--snapshot", backend, target("invoice_calculator.rb", "call")
-        )
-
-        expect(status.exitstatus).not_to eq(0)
-        expect(stderr).to include("#{backend} snapshot backend is not built yet")
-        expect(stderr).to include("only `inline` is")
-        expect(stderr).to include("where a reviewer can read it")
-      end
-    end
-
-    it "rejects a backend name that is not in the spec at all" do
-      _stdout, stderr, status = run_cli("pin", "--snapshot", "yaml", target("invoice_calculator.rb", "call"))
-
-      expect(status.exitstatus).not_to eq(0)
-      expect(stderr.downcase).to include("yaml")
-    end
-
-    it "accepts the default backend without comment" do
-      _stdout, stderr, _status = run_cli("pin", "--snapshot", "inline", target("invoice_calculator.rb", "call"))
-
-      expect(stderr).not_to include("snapshot backend")
-    end
   end
 
   describe "report" do

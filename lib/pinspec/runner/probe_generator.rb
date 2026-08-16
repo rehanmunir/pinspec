@@ -574,6 +574,7 @@ module Pinspec
             begin
               pinspec_with_isolation do
                 begin
+                  PinspecFactory.reset_sequences!
                   pinspec_run_steps(records, refs)
                 rescue StandardError => setup_error
                   observation["status"] = "setup_error"

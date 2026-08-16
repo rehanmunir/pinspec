@@ -18,7 +18,7 @@ module Pinspec
       Result = Data.define(:spec_path, :support_paths, :pinned_cases, :aspects)
 
       def initialize(app_root:, target:, plan:, corpus:, stability:, fk_map:, force: false,
-                     only_aspect: nil, spec_dir: nil, namer: nil)
+                     only_aspect: nil, spec_dir: nil)
         @app_root = app_root
         @target = target
         @plan = plan
@@ -28,7 +28,6 @@ module Pinspec
         @force = force
         @only_aspect = only_aspect
         @spec_dir = spec_dir || SPEC_DIR
-        @namer = namer
       end
 
       def spec_path
@@ -208,6 +207,7 @@ module Pinspec
         <<~RUBY
           before do
           #{clock_guard(fingerprint)}  pinspec_clear_sinks
+            PinspecFactory.reset_sequences!
 
             travel_to Time.parse(#{PINSPEC_EPOCH.inspect})
             srand(#{PINSPEC_SEED})
@@ -254,11 +254,16 @@ module Pinspec
       end
 
       def create_call(payload)
+        attrs = (payload[:attrs] || {}).merge(assoc_arguments(payload))
+
         if payload[:factory]
-          return "PinspecFactory.create(:#{payload[:factory]})"
+          # The probe passes these to the factory too. Dropping them here built a
+          # different world in the emitted spec than the one that was captured.
+          return "PinspecFactory.create(:#{payload[:factory]})" if attrs.empty?
+
+          return "PinspecFactory.create(:#{payload[:factory]}, #{render_attrs(attrs)})"
         end
 
-        attrs = (payload[:attrs] || {}).merge(assoc_arguments(payload))
         "#{payload[:model]}.create!(#{render_attrs(attrs)})"
       end
 
@@ -321,9 +326,6 @@ module Pinspec
       end
 
       def description_for(input_case, observation)
-        named = descriptions[input_case.id]
-        return named if named
-
         outcome =
           case observation["status"]
           when "raised" then "raises #{observation.dig('error', 'class')}"
@@ -333,20 +335,6 @@ module Pinspec
         "#{@target.method_name} #{outcome} (#{input_case.id}, #{input_case.origin})"
       end
 
-      def descriptions
-        return @descriptions if defined?(@descriptions)
-
-        @descriptions =
-          if @namer&.enabled?
-            pairs = pinned.filter_map do |verdict|
-              input_case = @corpus.cases.find { |c| c.id == verdict.case_id }
-              [input_case, verdict.observation] if input_case
-            end
-            @namer.describe(pairs)
-          else
-            {}
-          end
-      end
 
       def value_shape(value)
         case value && value["t"]

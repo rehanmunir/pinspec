@@ -133,9 +133,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
         expect(idx.factory(:invoice).trait(:paid).attributes.map(&:name)).to eq(%i[paid status])
       end
 
-      it "exposes traits inherited from a parent factory" do
-        expect(idx.traits_for(:paid_invoice).map(&:name)).to eq(%i[paid overdue])
-      end
     end
 
     describe "callbacks, which fire during setup" do
@@ -183,46 +180,6 @@ RSpec.describe Pinspec::Analyzer::FactoryRegistry do
       end
     end
 
-    describe "inheritance resolution" do
-      it "walks the parent chain root-first" do
-        expect(idx.ancestry(:premium_product).map(&:name)).to eq(%i[product premium_product])
-        expect(idx.ancestry(:invoice).map(&:name)).to eq([:invoice])
-      end
-
-      it "merges inherited attributes with the child's own" do
-        expect(idx.attributes_for(:premium_customer).map(&:name)).to eq(%i[name email region])
-        expect(idx.attributes_for(:paid_invoice).map(&:name))
-          .to eq(%i[customer number total status line_count paid])
-      end
-
-      it "lets a child override an inherited attribute" do
-        name = idx.attributes_for(:premium_product).find { |a| a.name == :name }
-
-        expect(name.source).to eq('"Premium Widget"')
-      end
-
-      it "applies traits last, so a trait overrides the base attribute" do
-        status = idx.attributes_for(:invoice, traits: [:paid]).find { |a| a.name == :status }
-
-        expect(status.source).to eq('"paid"')
-      end
-
-      it "finds a trait declared on an ancestor" do
-        expect(idx.attributes_for(:paid_invoice, traits: [:overdue]).map(&:name)).to include(:due_on)
-      end
-
-      it "terminates on mutually parented factories instead of looping forever" do
-        cyclic = index("cyclic_app")
-
-        expect(cyclic.ancestry(:chicken).map(&:name)).to contain_exactly(:chicken, :egg)
-        expect(cyclic.attributes_for(:chicken).map(&:name)).to eq([:name])
-      end
-
-      it "returns nothing for an unknown factory rather than raising" do
-        expect(idx.ancestry(:nope)).to be_empty
-        expect(idx.attributes_for(:nope)).to be_empty
-      end
-    end
   end
 
   describe "a legacy factory_girl suite" do
