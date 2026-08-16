@@ -639,7 +639,9 @@ module Pinspec
             # Between cases: anything memoized in a cache or a CurrentAttributes slot
             # would otherwise leak into the next case.
             Rails.cache.clear if defined?(Rails) && Rails.respond_to?(:cache) && Rails.cache
-            ActiveSupport::CurrentAttributes.reset_all if defined?(ActiveSupport::CurrentAttributes)
+            if defined?(ActiveSupport::CurrentAttributes) && ActiveSupport::CurrentAttributes.respond_to?(:reset_all)
+              ActiveSupport::CurrentAttributes.reset_all
+            end
             pinspec_clear_sinks
             PinspecClock.travel_back
           end

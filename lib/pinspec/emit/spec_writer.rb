@@ -217,6 +217,10 @@ module Pinspec
         fingerprint = @plan.env_fingerprint
 
         <<~RUBY
+          # travel_to and travel_back live here. rspec-rails includes them only when a
+          # suite opts in, and a pin must not depend on that.
+          include ActiveSupport::Testing::TimeHelpers
+
           before do
           #{clock_guard(fingerprint)}  pinspec_clear_sinks
             PinspecFactory.reset_sequences!

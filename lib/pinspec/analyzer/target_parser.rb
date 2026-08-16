@@ -23,13 +23,22 @@ module Pinspec
       # `options`, `article_attributes`.
       HASH_SHAPED = /\A(?:\w+_)?(?:params|options|attributes|attrs|opts)\z/
 
-      SCALARISH_NAMES = %w[
-        amount total subtotal price cost quantity qty count index number num
-        name email phone title body text message description reason code type
-        kind status state value key data payload args
-        config settings id token flag mode format scope limit offset
-        date time now today percent rate ratio sum size length label url path
-      ].freeze
+      # These names are not models - but saying only that leaves the corpus with no
+      # value at all, and a required parameter then receives an invented nil. The
+      # target raises on it and pinspec pins that error as the application's
+      # behaviour, which is the one thing it promises never to do. So each name maps
+      # to a type the corpus can actually build.
+      SCALARISH_TYPES = {
+        "String" => %w[
+          name email phone title body text message description reason code key
+          path url slug token label format mode scope type kind status state
+          value data
+        ],
+        "Integer" => %w[count index number num limit offset size length quantity qty position],
+        "Float" => %w[amount total subtotal price cost percent rate ratio sum]
+      }.freeze
+
+      SCALARISH_NAMES = SCALARISH_TYPES.values.flatten.freeze
 
       DI_PATTERNS = [
         /\ARails\.application\.config\b/,
@@ -797,7 +806,8 @@ module Pinspec
         return "Date"    if s.end_with?("_on", "_date")
         return "Hash"    if HASH_SHAPED.match?(s)
         return "Array"   if s.end_with?("s") && !s.end_with?("ss", "us", "is")
-        return nil if SCALARISH_NAMES.include?(s)
+        scalar = SCALARISH_TYPES.find { |_type, names| names.include?(s) }
+        return scalar.first if scalar
         return nil unless s.match?(/\A[a-z][a-z0-9_]*\z/)
 
         camelize(s)

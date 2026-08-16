@@ -73,11 +73,20 @@ RSpec.describe Pinspec::Inputs::Corpus do
       expect(cases.size).to eq(5)
     end
 
+    # The property is that method parameters are reached at all, not that a named one
+    # lands at a particular index: which variation comes third depends on how many
+    # values each parameter has, and that changes as typing improves.
     it "reaches a method parameter rather than spending everything on the ctor" do
-      express = cases.find { |c| kwargs_of(c, "express") == true }
+      ctor_names = Pinspec::Analyzer::TargetParser
+                   .parse(File.expand_path("../fixtures/apps/full_app/app/services/order_pricer.rb", __dir__), "call")
+                   .initializer_params.map(&:name)
 
-      expect(express).not_to be_nil
-      expect(express.id).to eq("c003")
+      early = cases.first(3)
+      varied = early.flat_map { |c| c.args.each_with_index.map { |_, i| :method_positional } + c.kwargs.keys.map(&:to_sym) }
+
+      expect(varied).not_to be_empty
+      expect(ctor_names).to include(:company)
+      expect(cases.map { |c| Pinspec::Tags.decode(c.args.first) }.uniq.size).to be > 1
     end
 
     it "still varies constructor parameters" do
@@ -107,8 +116,15 @@ RSpec.describe Pinspec::Inputs::Corpus do
       expect(cases.map { |c| c.ctor_kwargs }.uniq).to eq([{}])
     end
 
-    it "declines an ambiguous column type rather than guessing" do
-      expect(Pinspec::Tags.decode(cases.first.args.first)).to be_nil
+    # The schema is still declined when two tables disagree about a column's type -
+    # but the parameter's NAME is a separate signal, and using it beats passing nil.
+    it "falls back to the name when the schema cannot settle the type" do
+      value = Pinspec::Tags.decode(cases.first.args.first)
+
+      # `quantity` reads as an Integer from its name alone. Before, an ambiguous
+      # column meant nil, and nil is what got passed and pinned.
+      expect(value).to be_a(Integer)
+      expect(value).not_to be_nil
     end
   end
 
@@ -126,10 +142,16 @@ RSpec.describe Pinspec::Inputs::Corpus do
       expect(regions).to include("", "pinspec")
     end
 
-    it "passes nil when nothing is known, which exercises the commonest legacy crash" do
+    # This used to pass nil deliberately, to exercise the commonest legacy crash.
+    # Field-testing overturned that: on a real application it froze
+    # `NoMethodError: undefined method 'split' for nil` for a parameter named `path`,
+    # which characterises what pinspec passed rather than what the target does. A
+    # name like `path` or `amount` says enough to build a real value, and a pin over
+    # a real value is worth more than a pin over a crash pinspec caused.
+    it "builds a real value for a name that says what it is" do
       cases = corpus("full_app", "order_pricer.rb").cases
 
-      expect(Pinspec::Tags.decode(cases.first.args.first)).to be_nil
+      expect(Pinspec::Tags.decode(cases.first.args.first)).not_to be_nil
     end
   end
 

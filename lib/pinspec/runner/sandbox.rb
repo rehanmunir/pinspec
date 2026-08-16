@@ -76,6 +76,8 @@ module Pinspec
               .merge(@env)
 
         stdout, stderr, status = Open3.capture3(env, *command, chdir: @app_root)
+        stdout = stdout.to_s.dup.force_encoding(Encoding::UTF_8).scrub
+        stderr = stderr.to_s.dup.force_encoding(Encoding::UTF_8).scrub
 
         unless status.success?
           raise ProbeFailure,
