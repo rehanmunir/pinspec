@@ -30,6 +30,18 @@ module Pinspec
         @spec_dir = spec_dir || SPEC_DIR
       end
 
+      # The class half of a pin's filename, so a caller can find the pin for a class
+      # without knowing which method it froze.
+      def self.class_stem(class_name)
+        class_name.to_s
+                  .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
+                  .gsub(/([a-z\d])([A-Z])/, '\1_\2')
+                  .downcase
+                  .tr("/", "_")
+                  .tr(":", "_")
+                  .squeeze("_")
+      end
+
       def spec_path
         suffix = @only_aspect ? "_#{@only_aspect}" : ""
 
@@ -100,7 +112,7 @@ module Pinspec
       end
 
       def file_stem
-        underscore(@target.class_name).tr("/", "_") + "_" + @target.method_name.to_s.gsub(/[^a-z0-9_]/i, "")
+        self.class.class_stem(@target.class_name) + "_" + @target.method_name.to_s.gsub(/[^a-z0-9_]/i, "")
       end
 
       def render

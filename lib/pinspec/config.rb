@@ -8,6 +8,10 @@ module Pinspec
 
     KEYS = %w[cases boots sample redact compare-sql verify-level test-command env].freeze
 
+    # Keys that used to be valid. A config written for an older pinspec is ignored
+    # with a note rather than failing the run - an upgrade should not stop a build.
+    RETIRED_KEYS = %w[snapshot].freeze
+
     EMPTY = { "env" => {} }.freeze
 
     def self.load(app_root)
@@ -17,7 +21,14 @@ module Pinspec
       parsed = YAML.safe_load(Analyzer::Source.read(path), permitted_classes: [], aliases: false) || {}
       raise ConfigInvalid, "#{path} must contain a mapping, got #{parsed.class}" unless parsed.is_a?(Hash)
 
-      unknown = parsed.keys.map(&:to_s) - KEYS
+      retired = parsed.keys.map(&:to_s) & RETIRED_KEYS
+      unless retired.empty?
+        warn "pinspec: #{path} sets #{retired.map(&:inspect).join(', ')}, which " \
+             "#{retired.size == 1 ? 'was' : 'were'} removed. Ignoring #{retired.size == 1 ? 'it' : 'them'}; " \
+             "delete the line to silence this."
+      end
+
+      unknown = parsed.keys.map(&:to_s) - KEYS - RETIRED_KEYS
       unless unknown.empty?
         raise ConfigInvalid,
               "#{path} has unknown #{unknown.size == 1 ? 'key' : 'keys'} " \

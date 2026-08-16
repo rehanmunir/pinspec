@@ -35,8 +35,9 @@ module Pinspec
     method_option :"verify-level", type: :string, default: "full", enum: %w[full isolated]
     method_option :"app-env", type: :string, repeatable: true, banner: "KEY=VALUE",
                               desc: "environment for the app's own runtime"
-    def verify(spec_file)
+    def verify(*args)
       guarded do
+        spec_file = target_from(args)
         path = File.expand_path(spec_file, options[:app])
 
         unless File.file?(path)
@@ -190,9 +191,11 @@ module Pinspec
                            desc: "read real rows through a generated read-only script in the app"
     method_option :"no-redact", type: :boolean, default: false,
                                desc: "do NOT rewrite personal data in sampled rows (they land in a committed file)"
+    method_option :snapshot, type: :string, hide: true
     def pin(*args)
       guarded do
         target = target_from(args)
+        warn_about_retired_flags!
         warn_about_redaction!
 
         return pin_directory(target) if File.directory?(target)
@@ -393,7 +396,31 @@ module Pinspec
       end
 
       @chosen = choice
-      [file, choice.descriptor]
+      [file, existing_pin_method(file, choice) || choice.descriptor]
+    end
+
+    # Discovery follows the application's convention, which can differ from what an
+    # older pinspec chose - it always assumed #call. Re-pinning a class under a new
+    # method would leave the previous pin sitting in the suite, unmaintained and still
+    # running. So an existing pin for this class decides.
+    def existing_pin_method(file, choice)
+      dir = File.join(options[:app], Emit::SpecWriter::SPEC_DIR)
+      return nil unless File.directory?(dir)
+
+      profile = Analyzer::TargetParser.parse(file, choice.descriptor)
+      stem = Emit::SpecWriter.class_stem(profile.class_name)
+      pinned = Dir.glob(File.join(dir, "#{stem}_*_spec.rb"))
+                  .map { |path| File.basename(path).delete_prefix("#{stem}_").delete_suffix("_spec.rb") }
+                  .reject { |method| method == choice.method_name }
+
+      return nil unless pinned.size == 1
+
+      warn "pinspec: keeping ##{pinned.first}, which this class is already pinned on. " \
+           "Discovery would have chosen ##{choice.method_name}; pass " \
+           "#{File.basename(file)}##{choice.method_name} to switch."
+      pinned.first
+    rescue StandardError
+      nil
     end
 
     def ambiguous_message(file, choice)
@@ -425,6 +452,16 @@ module Pinspec
 
     def setting(key, default)
       config.value(key, options[key.to_sym], default)
+    end
+
+    # `--snapshot` selected a backend whose only implementation refused two of its
+    # three values. It is accepted and ignored so that upgrading does not break a
+    # script that passed it.
+    def warn_about_retired_flags!
+      return if options[:snapshot].nil?
+
+      warn "pinspec: --snapshot was removed and is ignored. A pin has always been " \
+           "inline literals, which is what that flag selected by default."
     end
 
     def warn_about_redaction!

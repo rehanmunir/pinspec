@@ -62,6 +62,28 @@ asserting `Time.now.strftime("%z")` passes where it was written and fails under
   built first, so the real row the flag exists to fetch is the one the target receives.
 - **`redact:` in `.pinspec.yml` was accepted and ignored.**
 
+### Upgrading from 0.1.0 or 0.2.0
+
+Nothing you already have stops working. Verified by generating pins with the real
+0.1.0 and 0.2.0 and putting them through this version:
+
+- **Pins written by 0.1.0 and 0.2.0 still verify green**, unchanged, including under
+  the new honest `neighbored`.
+- **Re-pinning one keeps its method and its filename.** Discovery follows the
+  application's convention, which can differ from the `#call` older versions always
+  assumed; where a pin already exists, the method it froze wins, so re-running cannot
+  quietly write a second file and leave the first one in the suite.
+- **Every flag those versions accepted is still accepted**, including `--skip-verify`
+  and the `--app-env A=1 B=2` array form. `--snapshot` is taken and ignored with a
+  note rather than rejected - it is no longer advertised, because a flag that does
+  nothing should not invite use.
+- **A `.pinspec.yml` naming a retired key warns and continues** instead of failing the
+  build. A key that was never valid is still an error.
+- **Exit codes mean what they always meant.** 11 (`EnvironmentRefused`) is retired and
+  deliberately not reused, so a script testing for it simply never sees it.
+
+`spec/upgrade_compatibility_spec.rb` holds all of this, so it cannot regress quietly.
+
 ### Deleted
 
 294 lines net. Nothing here changes behaviour any user could observe:
