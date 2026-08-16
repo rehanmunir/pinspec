@@ -360,9 +360,7 @@ module Pinspec
       @legacy_env = pairs
 
       if targets.empty?
-        raise TargetNotFound,
-              "no target given. Pass a file, a FILE#METHOD, or a directory: " \
-              "pinspec pin app/services/invoice_calculator.rb"
+        raise TargetNotFound, no_target_message
       end
 
       if targets.size > 1
@@ -386,6 +384,13 @@ module Pinspec
     # application itself follows.
     def resolve_target(target)
       file, method = Analyzer::TargetParser.split_target(target)
+
+      unless File.file?(file) || File.directory?(file)
+        raise TargetNotFound,
+              "no file at #{file}. Pass a path to a Ruby file, a FILE#METHOD, or a " \
+              "directory - paths are relative to where you are, not to --app."
+      end
+
       return [file, method] if method
       return [file, options[:method]] if options[:method]
 
@@ -409,18 +414,41 @@ module Pinspec
 
       profile = Analyzer::TargetParser.parse(file, choice.descriptor)
       stem = Emit::SpecWriter.class_stem(profile.class_name)
+
+      # A pin's filename cannot carry `?` or `!`, so compare on the same stripped
+      # form the filename uses - otherwise a pinned `#valid?` reads back as `valid`,
+      # which is not a method the class has.
+      stripped = ->(name) { name.to_s.gsub(/[^a-z0-9_]/i, "") }
       pinned = Dir.glob(File.join(dir, "#{stem}_*_spec.rb"))
                   .map { |path| File.basename(path).delete_prefix("#{stem}_").delete_suffix("_spec.rb") }
-                  .reject { |method| method == choice.method_name }
+                  .reject { |name| name == stripped.call(choice.method_name) }
 
       return nil unless pinned.size == 1
 
-      warn "pinspec: keeping ##{pinned.first}, which this class is already pinned on. " \
+      # Resolve the stem back to the method the class really defines, so `?` and `!`
+      # survive the round trip.
+      surface = Analyzer::Discovery.new(file).surface
+      real = (surface[:instance] + surface[:singleton]).find { |name| stripped.call(name) == pinned.first }
+      return nil if real.nil?
+
+      warn "pinspec: keeping ##{real}, which this class is already pinned on. " \
            "Discovery would have chosen ##{choice.method_name}; pass " \
            "#{File.basename(file)}##{choice.method_name} to switch."
-      pinned.first
+      real
     rescue StandardError
       nil
+    end
+
+    # --skip-verify means nothing was verified, so the summary must not say it was.
+    def no_target_message
+      return "no spec file given: pinspec verify spec/models/order_spec.rb" if current_command_chain.first == :verify
+
+      "no target given. Pass a file, a FILE#METHOD, or a directory: " \
+        "pinspec pin app/services/invoice_calculator.rb"
+    end
+
+    def verified_word
+      options[:"skip-verify"] ? "not verified" : "verified"
     end
 
     def ambiguous_message(file, choice)
@@ -497,7 +525,7 @@ module Pinspec
       return if graph.skipped_statements.empty?
 
       puts
-      puts "  hazards (relevance is decided once a plan exists, in M-05):"
+      puts "  hazards - statements pinspec could not read; relevant only if a plan needs these tables:"
       graph.skipped_statements.each { |statement| puts "    #{statement}" }
     end
 
@@ -828,7 +856,7 @@ module Pinspec
         name = File.basename(outcome.file).ljust(width)
 
         puts case outcome.status
-             when :pinned  then format("  pinned   %s  %-10s %d case(s), verified",
+             when :pinned  then format("  pinned   %s  %-10s %d case(s), #{verified_word}",
                                        name, "##{outcome.target.to_s[/#(.+)\z/, 1]}", outcome.pinned)
              when :refused then format("  skipped  %s  %s", name, outcome.detail)
              else               format("  FAILED   %s  %s", name, outcome.detail)

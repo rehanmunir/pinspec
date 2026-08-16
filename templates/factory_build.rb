@@ -4,10 +4,6 @@
 module PinspecFactory
   MAX_ATTEMPTS = 8
 
-  def self.attempts
-    @attempts ||= {}
-  end
-
   # factory_bot sequences are process-global and monotonic, so a pin whose world uses
   # one is only reproducible while nothing else in the process built that factory
   # first. Running the same pin twice in one process produced INV-1 then INV-2 and the
@@ -18,10 +14,6 @@ module PinspecFactory
     return unless mod.respond_to?(:rewind_sequences)
 
     mod.rewind_sequences
-  end
-
-  def self.reset_attempts!
-    @attempts = {}
   end
 
   def self.default_module
@@ -43,7 +35,6 @@ module PinspecFactory
                    factory_module.create(name.to_sym, attrs)
                  end
 
-        attempts[name.to_s] = attempt
         return record
       rescue StandardError => e
         raise unless retryable?(e)
@@ -52,7 +43,6 @@ module PinspecFactory
       end
     end
 
-    attempts[name.to_s] = MAX_ATTEMPTS
     raise last_error
   end
 
@@ -60,7 +50,4 @@ module PinspecFactory
     defined?(ActiveRecord::RecordInvalid) && error.is_a?(ActiveRecord::RecordInvalid)
   end
 
-  def self.fragile
-    attempts.select { |_name, count| count > 1 }
-  end
 end

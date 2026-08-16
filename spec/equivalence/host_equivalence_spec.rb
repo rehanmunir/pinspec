@@ -26,7 +26,17 @@ RSpec.describe "host equivalence, across the six contract axes" do
       system("pg_isready", out: File::NULL, err: File::NULL)
   end
 
+  # Memoised across the whole file, not per example. `let` memoises per EXAMPLE, so
+  # every example asking for the same pin booted Rails five more times: 25 captures
+  # for 7 distinct pins, about 43 seconds of repeated boots in a two-minute suite.
+  # The pin is a pure function of these arguments, so one run answers every example.
+  PINS = {}
+
   def pin(app, service, method: "call", cases: 1, level: :full)
+    PINS[[app, service, method, cases, level]] ||= run_pin(app, service, method, cases, level)
+  end
+
+  def run_pin(app, service, method, cases, level)
     root = app_root(app)
     env = app_env(app)
 

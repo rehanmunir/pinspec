@@ -219,21 +219,6 @@ RSpec.describe Pinspec::Analyzer::SchemaReader do
       expect(view.references).to include("orders")
     end
 
-    describe "relevance, which only a plan can decide" do
-      it "is unset until a plan exists" do
-        expect(graph.skipped_statements.map(&:relevant)).to all(be_nil)
-      end
-
-      it "marks a view on a planned table relevant, and an unrelated function not" do
-        annotated = graph.annotate_relevance(%w[orders])
-        by_kind   = annotated.skipped_statements.group_by(&:kind)
-
-        expect(by_kind[:create_view].first).to be_relevant
-        expect(by_kind[:unknown_column_type]).to all(be_relevant)
-        expect(by_kind[:create_function].first).not_to be_relevant
-        expect(by_kind[:create_enum].first).not_to be_relevant
-      end
-    end
   end
 
   describe "a schema that does not fit the rules" do

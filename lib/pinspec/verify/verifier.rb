@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "pathname"
 require "json"
 require "open3"
 
@@ -55,6 +56,7 @@ module Pinspec
       def run(config)
         args, extra_env = arguments_for(config)
         stdout, stderr, _status = Open3.capture3(environment.merge(extra_env), *args, chdir: @app_root)
+        FileUtils.rm_f(@neighbour) if @neighbour
 
         summary = parse(stdout)
         return failure(config, stdout, stderr, summary) if summary.nil? || summary["failure_count"].to_i.positive?
@@ -75,7 +77,7 @@ module Pinspec
       end
 
       def arguments_for(config)
-        relative = @spec_path.sub("#{@app_root}/", "")
+        relative = relative_spec_path
         base = ["bundle", "exec", "rspec", "--format", "json"]
 
         case config
@@ -91,16 +93,29 @@ module Pinspec
         end
       end
 
+      # Pathname does this properly: a string sub leaves an absolute path untouched
+      # when it does not start with the app root, which is exactly the case when
+      # someone runs `pinspec verify spec/foo_spec.rb` from inside their app.
+      def relative_spec_path
+        Pathname.new(File.expand_path(@spec_path))
+                .relative_path_from(Pathname.new(File.expand_path(@app_root)))
+                .to_s
+      rescue ArgumentError
+        @spec_path
+      end
+
       # Written into the app's tmp, with its relative requires rewritten to point back
-      # at the support files the original sits beside.
+      # at the support files the original sits beside. Removed again after the run -
+      # pinspec does not leave files in somebody's repository.
       def neighbour_of(relative)
-        source = File.join(@app_root, relative)
+        source = File.expand_path(relative, @app_root)
         target = File.join(@app_root, NEIGHBOUR_DIR, "neighbour_#{File.basename(relative)}")
-        support = File.expand_path(File.dirname(source))
+        support = File.dirname(source)
 
         FileUtils.mkdir_p(File.dirname(target))
         File.write(target, Analyzer::Source.read(source)
                                            .gsub('require_relative "support/', %(require_relative "#{support}/support/)))
+        @neighbour = target
 
         File.join(NEIGHBOUR_DIR, File.basename(target))
       end

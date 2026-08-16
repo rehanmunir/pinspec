@@ -79,9 +79,9 @@ module Pinspec
 
         # Nothing conventional, and what remains is a single conversion method: that is
         # this class's whole public surface, so it is the target.
+        # Conversion methods rank last, so a real entry point wins - but a class whose
+        # only ordinary method is one of them still has something to pin.
         ordinary = instance - LAST_RESORT
-        conversions = instance & LAST_RESORT
-        return chosen(conversions.first, :sole_method, instance) if ordinary.empty? && conversions.size == 1
         return chosen(ordinary.first, :sole_method, instance) if ordinary.size == 1
         return Choice.new(method_name: singleton.first, reason: :sole_method, candidates: singleton, owner: nil) if instance.empty? && singleton.size == 1
 

@@ -24,8 +24,6 @@ RSpec.describe PinspecFactory do
     class RecordNotUnique < StandardError; end
   end
 
-  before { described_class.reset_attempts! }
-
   it "retries a factory that fails on a random attribute" do
     factory = FlakyFactory.new(2)
 
@@ -35,23 +33,8 @@ RSpec.describe PinspecFactory do
     expect(factory.calls).to eq(3)
   end
 
-  it "records how many attempts it took, so a report can say the factory is fragile" do
-    described_class.create(:order, {}, FlakyFactory.new(2))
-    described_class.create(:customer, {}, FlakyFactory.new(0))
-
-    expect(described_class.attempts).to eq("order" => 3, "customer" => 1)
-    expect(described_class.fragile).to eq("order" => 3)
-  end
-
-  it "reports nothing fragile when every factory worked first time" do
-    described_class.create(:order, {}, FlakyFactory.new(0))
-
-    expect(described_class.fragile).to be_empty
-  end
-
   it "is replayable, because the loop is a pure function of the seed" do
     probe_host = described_class.create(:order, {}, FlakyFactory.new(2))
-    described_class.reset_attempts!
     spec_host = described_class.create(:order, {}, FlakyFactory.new(2))
 
     expect(spec_host).to eq(probe_host)
@@ -61,7 +44,6 @@ RSpec.describe PinspecFactory do
     expect { described_class.create(:order, {}, FlakyFactory.new(99)) }
       .to raise_error(ActiveRecord::RecordInvalid, /Email is invalid/)
 
-    expect(described_class.attempts["order"]).to eq(described_class::MAX_ATTEMPTS)
   end
 
   it "does not retry an error that will fail identically every time" do

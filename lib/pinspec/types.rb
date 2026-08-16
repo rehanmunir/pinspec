@@ -1,19 +1,10 @@
 # frozen_string_literal: true
 
 module Pinspec
-  PARAM_KINDS = %i[req opt rest keyreq key keyrest].freeze
 
   OPTIONAL_PARAM_KINDS   = %i[opt key rest keyrest].freeze
   POSITIONAL_PARAM_KINDS = %i[req opt rest].freeze
 
-  CONSTRUCTION_KINDS = %i[
-    new
-    class_method
-    interactor
-    dry_initializer
-    struct
-    model_instance
-  ].freeze
 
   Param = Data.define(:name, :kind, :default_source, :type_hint) do
     def positional?
@@ -419,13 +410,7 @@ module Pinspec
   end
 
   SkippedStatement = Data.define(:kind, :table, :column, :references, :file, :line, :relevant) do
-    def relevant?
-      relevant == true
-    end
 
-    def tables_touched
-      ([table] + Array(references)).compact.uniq
-    end
 
     def to_s
       subject = column ? "#{table}.#{column}" : table
@@ -455,12 +440,5 @@ module Pinspec
       tables.flat_map { |t| t.columns.select(&:unknown_type?).map { |c| [t.name, c] } }
     end
 
-    def annotate_relevance(planned_tables)
-      wanted = Array(planned_tables).map(&:to_s)
-
-      with(skipped_statements: skipped_statements.map do |statement|
-        statement.with(relevant: statement.tables_touched.any? { |t| wanted.include?(t) })
-      end)
-    end
   end
 end

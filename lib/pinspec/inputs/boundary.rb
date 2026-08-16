@@ -19,11 +19,10 @@ module Pinspec
       DECIMAL_HINTS = %w[BigDecimal Decimal].freeze
 
       class << self
-        def values_for(param, column: nil, default_first: true)
+        def values_for(param, column: nil)
           declared = default_value(param)
           edges    = edges_for(param, column)
-
-          ordered = default_first ? [declared, *edges] : [*edges, declared]
+          ordered = [declared, *edges]
 
           present(ordered).map { |value| encode(value, param) }.uniq
         end
