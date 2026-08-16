@@ -431,7 +431,11 @@ module Pinspec
 
       def resolve_construction(scope, mdef)
         return [:class_method, []] if mdef.singleton
+        return [:class_method, []] if module_self_calling?(scope)
         return [:model_instance, []] if model_scope?(scope)
+
+        attr_extras = attr_extras_params(scope)
+        return [:new, attr_extras] if attr_extras
 
         members = struct_members(scope)
         return [:struct, members] if members
@@ -554,6 +558,62 @@ module Pinspec
         return false unless sup
 
         MODEL_BASES.include?(sup) || MODEL_BASES.any? { |b| sup.end_with?("::#{b}") }
+      end
+
+      # A module that calls `module_function` or `extend self` answers its own methods,
+      # so there is nothing to construct. Calling .new on it raised
+      # "undefined method 'new' for module ..." inside the probe - a setup_error that
+      # named the application rather than the shape pinspec had failed to recognise.
+      def module_self_calling?(scope)
+        return false unless scope.kind == :module
+
+        scope_calls(scope).any? do |call|
+          call.receiver.nil? && %i[module_function extend].include?(call.name) &&
+            (call.name == :module_function || self_argument?(call))
+        end
+      end
+
+      def self_argument?(call)
+        Array(call.arguments&.arguments).any? { |arg| arg.is_a?(Prism::SelfNode) }
+      end
+
+      # attr_extras. `pattr_initialize`/`attr_initialize` generate the constructor, so
+      # a class using one has no `def initialize` to read and looked like it took no
+      # arguments at all - pinspec then called .new with nothing and the generated
+      # constructor raised KeyError. That is 110 of chatwoot's 386 service files.
+      #
+      #   pattr_initialize :account, :params          -> two required positionals
+      #   pattr_initialize [:inbox!, :params!]        -> two required keywords
+      #   pattr_initialize [:channel!, :message]      -> one required, one optional
+      #
+      # A bare symbol is positional; symbols inside an array are keywords, and the
+      # trailing "!" is attr_extras' own mark for "required".
+      ATTR_EXTRAS_MACROS = %i[pattr_initialize attr_initialize].freeze
+
+      def attr_extras_params(scope)
+        call = scope_calls(scope).find do |node|
+          node.receiver.nil? && ATTR_EXTRAS_MACROS.include?(node.name)
+        end
+        return nil if call.nil?
+
+        Array(call.arguments&.arguments).flat_map { |arg| attr_extras_args(arg) }
+      end
+
+      def attr_extras_args(node)
+        case node
+        when Prism::SymbolNode
+          [build_param(node.unescaped.to_sym, :req, nil)]
+        when Prism::ArrayNode
+          node.elements.grep(Prism::SymbolNode).map do |element|
+            name = element.unescaped
+            required = name.end_with?("!")
+
+            build_param(name.delete_suffix("!").to_sym, required ? :keyreq : :key,
+                        required ? nil : "nil")
+          end
+        else
+          []
+        end
       end
 
       def struct_members(scope)

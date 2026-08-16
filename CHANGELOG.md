@@ -62,6 +62,28 @@ asserting `Time.now.strftime("%z")` passes where it was written and fails under
   built first, so the real row the flag exists to fetch is the one the target receives.
 - **`redact:` in `.pinspec.yml` was accepted and ignored.**
 
+### Two constructor shapes real applications use
+
+- **attr_extras.** `pattr_initialize`/`attr_initialize` generate the constructor, so
+  there is no `def initialize` to read and pinspec concluded the class took no
+  arguments - then called `new` with none, and the generated constructor raised
+  KeyError inside the probe. That is **110 of chatwoot's 386 service files**. Both
+  forms are now read: bare symbols are positional, symbols inside an array are
+  keywords, and attr_extras' trailing `!` marks the required ones.
+- **A module that answers its own methods.** `module_function` and `extend self` mean
+  there is nothing to construct, but pinspec called `.new` on the module and the probe
+  died with `undefined method 'new' for module ...` - an error naming the application
+  rather than the shape pinspec had failed to recognise.
+
+Both were found by booting real applications rather than by reading fixtures.
+
+One consequence is worth stating plainly: chatwoot's plannable share **fell** from
+109 files to 97. Those twelve were planning successfully only because pinspec could
+not see their constructor at all; they would have failed inside the probe. Refusing
+them up front, with the parameter named, is the honest answer - `channel` alone
+accounts for 12, and it is genuinely unbuildable because chatwoot's channels are
+separate models with separate tables.
+
 ### Upgrading from 0.1.0 or 0.2.0
 
 Nothing you already have stops working. Verified by generating pins with the real
